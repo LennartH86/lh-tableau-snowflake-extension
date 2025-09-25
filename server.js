@@ -3,6 +3,9 @@ const cors = require('cors');
 const snowflake = require('snowflake-sdk');
 const path = require('path');
 
+// Load environment variables
+require('dotenv').config();
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -22,9 +25,32 @@ const snowflakeConfig = {
   role: process.env.SNOWFLAKE_ROLE
 };
 
+// Validate required environment variables
+const requiredEnvVars = ['SNOWFLAKE_ACCOUNT', 'SNOWFLAKE_USERNAME', 'SNOWFLAKE_PASSWORD', 'SNOWFLAKE_DATABASE'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingEnvVars);
+  console.error('Please set these environment variables and restart the app.');
+  process.exit(1);
+}
+
+console.log('✅ Snowflake configuration loaded:', {
+  account: process.env.SNOWFLAKE_ACCOUNT,
+  username: process.env.SNOWFLAKE_USERNAME,
+  database: process.env.SNOWFLAKE_DATABASE,
+  schema: process.env.SNOWFLAKE_SCHEMA,
+  warehouse: process.env.SNOWFLAKE_WAREHOUSE
+});
+
 // Helper function to create Snowflake connection
 function createConnection() {
-  return snowflake.createConnection(snowflakeConfig);
+  try {
+    return snowflake.createConnection(snowflakeConfig);
+  } catch (error) {
+    console.error('❌ Failed to create Snowflake connection:', error);
+    throw error;
+  }
 }
 
 // Helper function to execute SQL queries
@@ -50,19 +76,31 @@ function executeQuery(connection, sqlText, binds = []) {
 
 // Create a new table
 app.post('/api/create-table', async (req, res) => {
+  console.log('📝 Create table request received:', req.body);
+  
   const { tableName, columns } = req.body;
   
   if (!tableName || !columns || columns.length === 0) {
+    console.error('❌ Invalid request: missing tableName or columns');
     return res.status(400).json({ error: 'Table name and columns are required' });
   }
 
-  const connection = createConnection();
+  let connection;
   
   try {
+    console.log('🔌 Creating Snowflake connection...');
+    connection = createConnection();
+    
+    console.log('🤝 Connecting to Snowflake...');
     await new Promise((resolve, reject) => {
       connection.connect((err, conn) => {
-        if (err) reject(err);
-        else resolve(conn);
+        if (err) {
+          console.error('❌ Snowflake connection failed:', err);
+          reject(err);
+        } else {
+          console.log('✅ Successfully connected to Snowflake');
+          resolve(conn);
+        }
       });
     });
 
@@ -72,15 +110,24 @@ app.post('/api/create-table', async (req, res) => {
     ).join(', ');
     
     const createTableSQL = `CREATE OR REPLACE TABLE ${tableName.toUpperCase()} (${columnDefinitions})`;
+    console.log('📄 Executing SQL:', createTableSQL);
     
     await executeQuery(connection, createTableSQL);
     
+    console.log('✅ Table created successfully:', tableName);
     res.json({ success: true, message: `Table ${tableName} created successfully` });
+    
   } catch (error) {
-    console.error('Error creating table:', error);
-    res.status(500).json({ error: 'Failed to create table: ' + error.message });
+    console.error('❌ Error in create-table endpoint:', error);
+    res.status(500).json({ 
+      error: 'Failed to create table: ' + (error.message || error),
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   } finally {
-    connection.destroy();
+    if (connection) {
+      console.log('🔌 Closing Snowflake connection...');
+      connection.destroy();
+    }
   }
 });
 
@@ -177,5 +224,7 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🏠 Access the app at: http://localhost:${PORT}`);
 });
