@@ -104,6 +104,20 @@ app.post('/api/create-table', async (req, res) => {
       });
     });
 
+    // Set database and schema context first
+    const useDbSQL = `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`;
+    const useSchemaSQL = `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`;
+    const useWarehouseSQL = `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`;
+    
+    console.log('🏢 Setting database context:', useDbSQL);
+    await executeQuery(connection, useDbSQL);
+    
+    console.log('📂 Setting schema context:', useSchemaSQL);
+    await executeQuery(connection, useSchemaSQL);
+    
+    console.log('🏭 Setting warehouse context:', useWarehouseSQL);
+    await executeQuery(connection, useWarehouseSQL);
+
     // Build CREATE TABLE statement
     const columnDefinitions = columns.map(col => 
       `${col.name.toUpperCase()} ${col.type.toUpperCase()}`
@@ -134,15 +148,22 @@ app.post('/api/create-table', async (req, res) => {
 // Get table data
 app.get('/api/table/:tableName', async (req, res) => {
   const { tableName } = req.params;
-  const connection = createConnection();
+  let connection;
   
   try {
+    connection = createConnection();
+    
     await new Promise((resolve, reject) => {
       connection.connect((err, conn) => {
         if (err) reject(err);
         else resolve(conn);
       });
     });
+
+    // Set context
+    await executeQuery(connection, `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`);
+    await executeQuery(connection, `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`);
+    await executeQuery(connection, `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`);
 
     const selectSQL = `SELECT * FROM ${tableName.toUpperCase()}`;
     const rows = await executeQuery(connection, selectSQL);
@@ -152,7 +173,7 @@ app.get('/api/table/:tableName', async (req, res) => {
     console.error('Error fetching table data:', error);
     res.status(500).json({ error: 'Failed to fetch table data: ' + error.message });
   } finally {
-    connection.destroy();
+    if (connection) connection.destroy();
   }
 });
 
@@ -165,15 +186,22 @@ app.post('/api/table/:tableName/insert', async (req, res) => {
     return res.status(400).json({ error: 'Rows data is required' });
   }
 
-  const connection = createConnection();
+  let connection;
   
   try {
+    connection = createConnection();
+    
     await new Promise((resolve, reject) => {
       connection.connect((err, conn) => {
         if (err) reject(err);
         else resolve(conn);
       });
     });
+
+    // Set context
+    await executeQuery(connection, `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`);
+    await executeQuery(connection, `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`);
+    await executeQuery(connection, `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`);
 
     // Insert each row
     for (const row of rows) {
@@ -189,22 +217,29 @@ app.post('/api/table/:tableName/insert', async (req, res) => {
     console.error('Error inserting data:', error);
     res.status(500).json({ error: 'Failed to insert data: ' + error.message });
   } finally {
-    connection.destroy();
+    if (connection) connection.destroy();
   }
 });
 
 // Get table structure
 app.get('/api/table/:tableName/structure', async (req, res) => {
   const { tableName } = req.params;
-  const connection = createConnection();
+  let connection;
   
   try {
+    connection = createConnection();
+    
     await new Promise((resolve, reject) => {
       connection.connect((err, conn) => {
         if (err) reject(err);
         else resolve(conn);
       });
     });
+
+    // Set context
+    await executeQuery(connection, `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`);
+    await executeQuery(connection, `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`);
+    await executeQuery(connection, `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`);
 
     const describeSQL = `DESCRIBE TABLE ${tableName.toUpperCase()}`;
     const structure = await executeQuery(connection, describeSQL);
@@ -214,7 +249,7 @@ app.get('/api/table/:tableName/structure', async (req, res) => {
     console.error('Error getting table structure:', error);
     res.status(500).json({ error: 'Failed to get table structure: ' + error.message });
   } finally {
-    connection.destroy();
+    if (connection) connection.destroy();
   }
 });
 
