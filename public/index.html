@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snowflake Table Manager</title>
+    <script src="https://unpkg.com/tableau-extensions-api/lib/tableau.extensions.1.latest.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse-glow { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+        .table-container { max-height: 400px; overflow-y: auto; }
+        .sticky-header th { position: sticky; top: 0; background: white; z-index: 10; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="text-center mb-8 fade-in">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">❄️ Snowflake Table Manager</h1>
+            <p class="text-gray-600">Create and manage Snowflake tables directly from Tableau</p>
+        </div>
+
+        <!-- Status Bar -->
+        <div id="statusBar" class="mb-6 p-3 rounded-lg bg-blue-100 border-l-4 border-blue-500 fade-in" style="display: none;">
+            <p id="statusMessage" class="text-blue-700 font-medium"></p>
+        </div>
+
+        <!-- Create Table Section -->
+        <div id="createTableSection" class="bg-white rounded-xl shadow-lg p-6 mb-6 fade-in">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                <span class="mr-2">🆕</span> Create New Table
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Table Name</label>
+                    <input type="text" id="tableName" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                           placeholder="Enter table name">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Number of Columns</label>
+                    <input type="number" id="columnCount" min="1" max="20" value="3"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+            </div>
+
+            <div id="columnsDefinition" class="mb-4">
+                <!-- Columns will be dynamically added here -->
+            </div>
+
+            <div class="flex gap-3">
+                <button id="generateColumns" 
+                        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                    Generate Column Fields
+                </button>
+                <button id="createTableBtn" 
+                        class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 pulse-glow"
+                        style="display: none;">
+                    Create Table
+                </button>
+            </div>
+        </div>
+
+        <!-- Table Management Section -->
+        <div id="tableSection" class="bg-white rounded-xl shadow-lg p-6 fade-in" style="display: none;">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                <span class="mr-2">📊</span> Table: <span id="currentTableName" class="text-blue-600"></span>
+            </h2>
+
+            <!-- Add Row Section -->
+            <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">Add New Row</h3>
+                <div id="addRowForm" class="grid gap-3">
+                    <!-- Form fields will be dynamically generated -->
+                </div>
+                <div class="mt-4 flex gap-3">
+                    <button id="addRowBtn" 
+                            class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                        Add to Pending
+                    </button>
+                    <button id="saveRowsBtn" 
+                            class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                            style="display: none;">
+                        💾 Save All Pending Rows
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pending Rows -->
+            <div id="pendingSection" style="display: none;" class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">
+                    Pending Rows (<span id="pendingCount">0</span>)
+                </h3>
+                <div class="table-container bg-yellow-50 rounded-lg p-4">
+                    <table id="pendingTable" class="min-w-full border-collapse">
+                        <thead id="pendingTableHead" class="sticky-header">
+                            <!-- Headers will be dynamically generated -->
+                        </thead>
+                        <tbody id="pendingTableBody">
+                            <!-- Pending rows will be displayed here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Current Table Data -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-700 mb-3 flex items-center">
+                    <span class="mr-2">💾</span> Saved Data
+                    <button id="refreshTableBtn" 
+                            class="ml-auto bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 text-sm rounded-lg transition-colors duration-200">
+                        🔄 Refresh
+                    </button>
+                </h3>
+                <div class="table-container border rounded-lg">
+                    <table id="dataTable" class="min-w-full border-collapse bg-white">
+                        <thead id="tableHead" class="sticky-header bg-gray-100">
+                            <!-- Headers will be dynamically generated -->
+                        </thead>
+                        <tbody id="tableBody">
+                            <!-- Data will be displayed here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button id="newTableBtn" 
+                        class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                    Create Another Table
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTable = null;
+        let pendingRows = [];
+        let tableStructure = [];
+
+        // Initialize Tableau Extensions API
+        function initializeExtension() {
+            tableau.extensions.initializeAsync().then(() => {
+                showStatus('Tableau Extension initialized successfully!', 'success');
+            }).catch(err => {
+                showStatus('Error initializing Tableau Extension: ' + err, 'error');
+            });
+        }
+
+        // Show status messages
+        function showStatus(message, type = 'info') {
+            const statusBar = document.getElementById('statusBar');
+            const statusMessage = document.getElementById('statusMessage');
+            
+            statusMessage.textContent = message;
+            statusBar.className = `mb-6 p-3 rounded-lg fade-in ${
+                type === 'success' ? 'bg-green-100 border-l-4 border-green-500' :
+                type === 'error' ? 'bg-red-100 border-l-4 border-red-500' :
+                'bg-blue-100 border-l-4 border-blue-500'
+            }`;
+            statusMessage.className = `font-medium ${
+                type === 'success' ? 'text-green-700' :
+                type === 'error' ? 'text-red-700' :
+                'text-blue-700'
+            }`;
+            
+            statusBar.style.display = 'block';
+            
+            setTimeout(() => {
+                statusBar.style.display = 'none';
+            }, 5000);
+        }
+
+        // Generate column definition fields
+        function generateColumnFields() {
+            const count = parseInt(document.getElementById('columnCount').value);
+            const container = document.getElementById('columnsDefinition');
+            
+            container.innerHTML = '';
+            
+            for (let i = 0; i < count; i++) {
+                const colDiv = document.createElement('div');
+                colDiv.className = 'grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 p-3 bg-gray-50 rounded-lg';
+                colDiv.innerHTML = `
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Column ${i + 1} Name</label>
+                        <input type="text" class="column-name w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                               placeholder="Column name" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data Type</label>
+                        <select class="column-type w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="VARCHAR(255)">Text (VARCHAR)</option>
+                            <option value="INTEGER">Integer</option>
+                            <option value="FLOAT">Decimal (FLOAT)</option>
+                            <option value="DATE">Date</option>
+                            <option value="TIMESTAMP">Timestamp</option>
+                            <option value="BOOLEAN">Boolean</option>
+                        </select>
+                    </div>
+                `;
+                container.appendChild(colDiv);
+            }
+            
+            document.getElementById('createTableBtn').style.display = 'inline-block';
+        }
+
+        // Create table in Snowflake
+        async function createTable() {
+            const tableName = document.getElementById('tableName').value.trim();
+            const columnNames = Array.from(document.querySelectorAll('.column-name')).map(input => input.value.trim());
+            const columnTypes = Array.from(document.querySelectorAll('.column-type')).map(select => select.value);
+            
+            if (!tableName || columnNames.some(name => !name)) {
+                showStatus('Please fill in all fields', 'error');
+                return;
+            }
+            
+            const columns = columnNames.map((name, index) => ({
+                name: name,
+                type: columnTypes[index]
+            }));
+            
+            try {
+                showStatus('Creating table...', 'info');
+                
+                const response = await fetch('/api/create-table', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tableName, columns })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentTable = tableName;
+                    tableStructure = columns;
+                    showStatus('Table created successfully!', 'success');
+                    showTableSection();
+                } else {
+                    showStatus('Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('Network error: ' + error.message, 'error');
+            }
+        }
+
+        // Show table management section
+        function showTableSection() {
+            document.getElementById('createTableSection').style.display = 'none';
+            document.getElementById('tableSection').style.display = 'block';
+            document.getElementById('currentTableName').textContent = currentTable;
+            
+            generateAddRowForm();
+            loadTableData();
+        }
+
+        // Generate add row form based on table structure
+        function generateAddRowForm() {
+            const form = document.getElementById('addRowForm');
+            form.innerHTML = '';
+            
+            tableStructure.forEach((column, index) => {
+                const colDiv = document.createElement('div');
+                colDiv.className = 'grid grid-cols-1 md:grid-cols-4 gap-2 items-end';
+                
+                let inputHtml = '';
+                switch (column.type) {
+                    case 'INTEGER':
+                    case 'FLOAT':
+                        inputHtml = `<input type="number" step="any" class="row-input" data-column="${column.name}" 
+                                   placeholder="Enter ${column.name}">`;
+                        break;
+                    case 'DATE':
+                        inputHtml = `<input type="date" class="row-input" data-column="${column.name}">`;
+                        break;
+                    case 'TIMESTAMP':
+                        inputHtml = `<input type="datetime-local" class="row-input" data-column="${column.name}">`;
+                        break;
+                    case 'BOOLEAN':
+                        inputHtml = `<select class="row-input" data-column="${column.name}">
+                                   <option value="">Select...</option>
+                                   <option value="true">True</option>
+                                   <option value="false">False</option>
+                                 </select>`;
+                        break;
+                    default:
+                        inputHtml = `<input type="text" class="row-input" data-column="${column.name}" 
+                                   placeholder="Enter ${column.name}">`;
+                }
+                
+                colDiv.innerHTML = `
+                    <div class="md:col-span-1">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">${column.name}</label>
+                        <span class="text-xs text-gray-500">${column.type}</span>
+                    </div>
+                    <div class="md:col-span-3">
+                        ${inputHtml}
+                    </div>
+                `;
+                
+                const input = colDiv.querySelector('.row-input');
+                input.className += ' w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent';
+                
+                form.appendChild(colDiv);
+            });
+        }
+
+        // Add row to pending list
+        function addRowToPending() {
+            const inputs = document.querySelectorAll('.row-input');
+            const rowData = {};
+            
+            inputs.forEach(input => {
+                const columnName = input.getAttribute('data-column');
+                let value = input.value.trim();
+                
+                // Handle different data types
+                if (value) {
+                    const columnType = tableStructure.find(col => col.name === columnName)?.type;
+                    if (columnType === 'INTEGER') {
+                        value = parseInt(value);
+                    } else if (columnType === 'FLOAT') {
+                        value = parseFloat(value);
+                    } else if (columnType === 'BOOLEAN') {
+                        value = value === 'true';
+                    }
+                }
+                
+                rowData[columnName] = value;
+            });
+            
+            // Check if at least one field is filled
+            if (Object.values(rowData).every(val => val === '' || val === null || val === undefined)) {
+                showStatus('Please fill in at least one field', 'error');
+                return;
+            }
+            
+            pendingRows.push(rowData);
+            updatePendingDisplay();
+            clearAddRowForm();
+            showStatus('Row added to pending list', 'success');
+        }
+
+        // Clear add row form
+        function clearAddRowForm() {
+            document.querySelectorAll('.row-input').forEach(input => {
+                input.value = '';
+            });
+        }
+
+        // Update pending rows display
+        function updatePendingDisplay() {
+            const pendingSection = document.getElementById('pendingSection');
+            const pendingCount = document.getElementById('pendingCount');
+            const saveBtn = document.getElementById('saveRowsBtn');
+            
+            pendingCount.textContent = pendingRows.length;
+            
+            if (pendingRows.length > 0) {
+                pendingSection.style.display = 'block';
+                saveBtn.style.display = 'inline-block';
+                
+                // Generate table headers
+                const thead = document.getElementById('pendingTableHead');
+                thead.innerHTML = `<tr class="bg-gray-100">${
+                    tableStructure.map(col => `<th class="px-4 py-2 text-left border-b">${col.name}</th>`).join('')
+                }<th class="px-4 py-2 text-left border-b">Actions</th></tr>`;
+                
+                // Generate table rows
+                const tbody = document.getElementById('pendingTableBody');
+                tbody.innerHTML = pendingRows.map((row, index) => 
+                    `<tr class="border-b hover:bg-yellow-100">${
+                        tableStructure.map(col => 
+                            `<td class="px-4 py-2">${row[col.name] || ''}</td>`
+                        ).join('')
+                    }<td class="px-4 py-2">
+                        <button onclick="removePendingRow(${index})" 
+                                class="text-red-500 hover:text-red-700 text-sm">Remove</button>
+                    </td></tr>`
+                ).join('');
+            } else {
+                pendingSection.style.display = 'none';
+                saveBtn.style.display = 'none';
+            }
+        }
+
+        // Remove pending row
+        function removePendingRow(index) {
+            pendingRows.splice(index, 1);
+            updatePendingDisplay();
+            showStatus('Pending row removed', 'info');
+        }
+
+        // Save all pending rows to Snowflake
+        async function savePendingRows() {
+            if (pendingRows.length === 0) {
+                showStatus('No pending rows to save', 'error');
+                return;
+            }
+            
+            try {
+                showStatus('Saving rows to Snowflake...', 'info');
+                
+                const response = await fetch(`/api/table/${currentTable}/insert`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rows: pendingRows })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(`Successfully saved ${pendingRows.length} rows!`, 'success');
+                    pendingRows = [];
+                    updatePendingDisplay();
+                    loadTableData();
+                } else {
+                    showStatus('Error saving rows: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('Network error: ' + error.message, 'error');
+            }
+        }
+
+        // Load table data from Snowflake
+        async function loadTableData() {
+            try {
+                const response = await fetch(`/api/table/${currentTable}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayTableData(result.data);
+                } else {
+                    showStatus('Error loading data: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('Network error: ' + error.message, 'error');
+            }
+        }
+
+        // Display table data
+        function displayTableData(data) {
+            const thead = document.getElementById('tableHead');
+            const tbody = document.getElementById('tableBody');
+            
+            if (data.length === 0) {
+                thead.innerHTML = '<tr><th class="px-4 py-2 text-center text-gray-500">No data available</th></tr>';
+                tbody.innerHTML = '';
+                return;
+            }
+            
+            // Generate headers
+            const headers = Object.keys(data[0]);
+            thead.innerHTML = `<tr class="bg-gray-100">${
+                headers.map(header => `<th class="px-4 py-2 text-left border-b font-semibold">${header}</th>`).join('')
+            }</tr>`;
+            
+            // Generate rows
+            tbody.innerHTML = data.map((row, index) => 
+                `<tr class="border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">${
+                    headers.map(header => 
+                        `<td class="px-4 py-2">${row[header] !== null && row[header] !== undefined ? row[header] : ''}</td>`
+                    ).join('')
+                }</tr>`
+            ).join('');
+        }
+
+        // Reset to create new table
+        function resetToCreateTable() {
+            currentTable = null;
+            pendingRows = [];
+            tableStructure = [];
+            
+            document.getElementById('createTableSection').style.display = 'block';
+            document.getElementById('tableSection').style.display = 'none';
+            
+            // Clear form
+            document.getElementById('tableName').value = '';
+            document.getElementById('columnCount').value = 3;
+            document.getElementById('columnsDefinition').innerHTML = '';
+            document.getElementById('createTableBtn').style.display = 'none';
+        }
+
+        // Event listeners
+        document.getElementById('generateColumns').addEventListener('click', generateColumnFields);
+        document.getElementById('createTableBtn').addEventListener('click', createTable);
+        document.getElementById('addRowBtn').addEventListener('click', addRowToPending);
+        document.getElementById('saveRowsBtn').addEventListener('click', savePendingRows);
+        document.getElementById('refreshTableBtn').addEventListener('click', loadTableData);
+        document.getElementById('newTableBtn').addEventListener('click', resetToCreateTable);
+
+        // Initialize the extension when page loads
+        document.addEventListener('DOMContentLoaded', initializeExtension);
+    </script>
+</body>
+</html>

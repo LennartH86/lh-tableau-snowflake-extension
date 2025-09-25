@@ -1,0 +1,11 @@
+# Snowflake Configuration
+heroku config:set SNOWFLAKE_ACCOUNT="AZNMVZU-FJ88629"
+heroku config:set SNOWFLAKE_USERNAME="LHTABLEAU"
+heroku config:set SNOWFLAKE_PASSWORD="CrwLsQw&I#0cQAes"
+heroku config:set SNOWFLAKE_DATABASE="TAB_EXTENSION"
+heroku config:set SNOWFLAKE_SCHEMA="PUBLIC"
+heroku config:set SNOWFLAKE_WAREHOUSE="TAB_EXTENSION"
+heroku config:set SNOWFLAKE_ROLE="SYSADMIN"
+
+# Server Configuration
+heroku config:set NODE_ENV=production
