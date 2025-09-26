@@ -156,20 +156,26 @@
             });
         }
 
-        // Check for saved table in Tableau settings
+        // Check for saved table in Tableau parameters
         async function checkForSavedTable() {
             try {
-                const settings = tableau.extensions.settings.getAll();
-                console.log('Current settings:', settings);
+                console.log('Checking for saved table in parameters...');
+                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                const parameters = await dashboard.getParametersAsync();
                 
-                const tableName = settings.SNOWFLAKE_TABLE_NAME;
-                const columnsJson = settings.SNOWFLAKE_TABLE_COLUMNS;
+                console.log('Found parameters:', parameters.map(p => p.name));
                 
-                if (tableName && columnsJson) {
-                    console.log('Found saved table:', tableName);
-                    showReconnectDialog(tableName, columnsJson);
+                const tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
+                const columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
+                
+                console.log('Table parameter:', tableParam?.currentValue);
+                console.log('Columns parameter:', columnsParam?.currentValue);
+                
+                if (tableParam && tableParam.currentValue && columnsParam && columnsParam.currentValue) {
+                    console.log('Found saved table, showing reconnect dialog');
+                    showReconnectDialog(tableParam.currentValue, columnsParam.currentValue);
                 } else {
-                    console.log('No saved table found');
+                    console.log('No saved table found, showing create section');
                     showCreateTableSection();
                 }
             } catch (error) {
@@ -249,46 +255,76 @@
             document.getElementById('tableSection').style.display = 'none';
         }
 
-        // Save table info to Tableau settings
-        async function saveTableToSettings() {
+        // Save table info to Tableau parameters
+        async function saveTableToParameters() {
             try {
-                console.log('Saving table to settings:', currentTable, tableStructure);
+                console.log('Attempting to save table to parameters:', currentTable, tableStructure);
                 
-                tableau.extensions.settings.set('SNOWFLAKE_TABLE_NAME', currentTable);
-                tableau.extensions.settings.set('SNOWFLAKE_TABLE_COLUMNS', JSON.stringify(tableStructure));
+                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                const parameters = await dashboard.getParametersAsync();
                 
-                // Save settings to persist them
-                await tableau.extensions.settings.saveAsync();
+                console.log('Available parameters:', parameters.map(p => ({name: p.name, current: p.currentValue})));
                 
-                console.log('✅ Table information saved to Tableau settings');
-                showStatus('Table settings saved successfully', 'success');
+                const tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
+                const columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
                 
-                // Also try to update parameters if they exist (optional)
-                try {
-                    const dashboard = tableau.extensions.dashboardContent.dashboard;
-                    const params = await dashboard.getParametersAsync();
-                    
-                    const tableParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
-                    const columnsParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
-                    
-                    if (tableParam) {
-                        await tableParam.changeValueAsync(currentTable);
-                        console.log('Updated SNOWFLAKE_TABLE_NAME parameter');
-                    }
-                    
-                    if (columnsParam) {
-                        await columnsParam.changeValueAsync(JSON.stringify(tableStructure));
-                        console.log('Updated SNOWFLAKE_TABLE_COLUMNS parameter');
-                    }
-                } catch (paramError) {
-                    console.log('Parameters not found or could not be updated:', paramError);
-                    // This is not critical - settings are the primary storage method
+                if (!tableParam) {
+                    throw new Error('SNOWFLAKE_TABLE_NAME parameter not found. Please create it in Tableau first.');
                 }
                 
+                if (!columnsParam) {
+                    throw new Error('SNOWFLAKE_TABLE_COLUMNS parameter not found. Please create it in Tableau first.');
+                }
+                
+                console.log('Updating SNOWFLAKE_TABLE_NAME parameter...');
+                await tableParam.changeValueAsync(currentTable);
+                
+                console.log('Updating SNOWFLAKE_TABLE_COLUMNS parameter...');
+                await columnsParam.changeValueAsync(JSON.stringify(tableStructure));
+                
+                console.log('✅ Table information saved to Tableau parameters successfully');
+                showStatus('Table settings saved to Tableau parameters', 'success');
+                
             } catch (error) {
-                console.error('Error saving to settings:', error);
-                showStatus('Warning: Could not save table settings', 'error');
+                console.error('❌ Error saving to parameters:', error);
+                showStatus('Could not save table settings: ' + error.message, 'error');
+                
+                // Show detailed instructions
+                showParameterInstructions();
             }
+        }
+
+        // Show parameter creation instructions
+        function showParameterInstructions() {
+            const instructionModal = document.createElement('div');
+            instructionModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            instructionModal.innerHTML = `
+                <div class="bg-white rounded-xl p-6 max-w-2xl mx-4 shadow-2xl">
+                    <h2 class="text-xl font-bold text-red-600 mb-4">⚠️ Parameters Required</h2>
+                    <p class="text-gray-700 mb-4">
+                        To save your table for future sessions, please create these parameters in Tableau:
+                    </p>
+                    <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                        <h3 class="font-semibold mb-2">Steps to create parameters:</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-sm">
+                            <li>In Tableau, right-click in the Data pane</li>
+                            <li>Select "Create Parameter..."</li>
+                            <li><strong>Parameter 1:</strong> Name: <code class="bg-blue-100 px-1">SNOWFLAKE_TABLE_NAME</code>, Data type: String</li>
+                            <li><strong>Parameter 2:</strong> Name: <code class="bg-blue-100 px-1">SNOWFLAKE_TABLE_COLUMNS</code>, Data type: String</li>
+                            <li>Click OK for both parameters</li>
+                            <li>Refresh this extension</li>
+                        </ol>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-4">
+                        Without these parameters, you'll need to reconnect to your table each time you open the dashboard.
+                    </p>
+                    <button onclick="this.closest('.fixed').remove()" 
+                            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                        I Understand
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(instructionModal);
         }
 
         // Show status messages
@@ -397,7 +433,7 @@
             
             generateAddRowForm();
             loadTableData();
-            saveTableToSettings(); // Save to Tableau settings
+            saveTableToParameters(); // Save to Tableau parameters
         }
 
         // Generate add row form based on table structure
@@ -763,14 +799,8 @@
             pendingRows = [];
             tableStructure = [];
             
-            // Clear settings
-            tableau.extensions.settings.set('SNOWFLAKE_TABLE_NAME', '');
-            tableau.extensions.settings.set('SNOWFLAKE_TABLE_COLUMNS', '');
-            tableau.extensions.settings.saveAsync().then(() => {
-                console.log('Settings cleared');
-            }).catch(err => {
-                console.error('Error clearing settings:', err);
-            });
+            // Clear parameters if they exist
+            clearTableParameters();
             
             document.getElementById('createTableSection').style.display = 'block';
             document.getElementById('tableSection').style.display = 'none';
@@ -782,53 +812,102 @@
             document.getElementById('createTableBtn').style.display = 'none';
         }
 
-        // Debug function to show current settings
-        function debugSettings() {
-            const settings = tableau.extensions.settings.getAll();
-            console.log('🐛 All Tableau Settings:', settings);
-            
-            const debugInfo = {
-                'All Settings': settings,
-                'Table Name': settings.SNOWFLAKE_TABLE_NAME || 'Not set',
-                'Table Columns': settings.SNOWFLAKE_TABLE_COLUMNS || 'Not set',
-                'Current Table in Memory': currentTable || 'None',
-                'Current Structure in Memory': tableStructure || 'None'
-            };
-            
-            // Show debug info in a modal
-            const debugModal = document.createElement('div');
-            debugModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            debugModal.innerHTML = `
-                <div class="bg-white rounded-xl p-6 max-w-2xl mx-4 shadow-2xl max-h-96 overflow-y-auto">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">🐛 Debug Information</h2>
-                    <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto whitespace-pre-wrap">${JSON.stringify(debugInfo, null, 2)}</pre>
-                    <div class="mt-4 flex gap-3">
-                        <button onclick="this.closest('.fixed').remove()" 
-                                class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
-                            Close
-                        </button>
-                        <button onclick="forceSaveSettings()" 
-                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
-                            Force Save Current Table
-                        </button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(debugModal);
-            
-            showStatus('Debug info displayed. Check console for detailed logs.', 'info');
+        // Clear table parameters
+        async function clearTableParameters() {
+            try {
+                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                const parameters = await dashboard.getParametersAsync();
+                
+                const tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
+                const columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
+                
+                if (tableParam) {
+                    await tableParam.changeValueAsync('');
+                    console.log('Cleared SNOWFLAKE_TABLE_NAME parameter');
+                }
+                
+                if (columnsParam) {
+                    await columnsParam.changeValueAsync('');
+                    console.log('Cleared SNOWFLAKE_TABLE_COLUMNS parameter');
+                }
+            } catch (error) {
+                console.log('Could not clear parameters:', error);
+            }
         }
 
-        // Force save current table to settings
-        function forceSaveSettings() {
+        // Debug function to show current parameters
+        async function debugSettings() {
+            try {
+                console.log('🐛 Starting debug...');
+                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                const parameters = await dashboard.getParametersAsync();
+                
+                const debugInfo = {
+                    'Available Parameters': parameters.map(p => ({
+                        name: p.name,
+                        dataType: p.dataType,
+                        currentValue: p.currentValue,
+                        id: p.id
+                    })),
+                    'Looking for': ['SNOWFLAKE_TABLE_NAME', 'SNOWFLAKE_TABLE_COLUMNS'],
+                    'Current Table in Memory': currentTable || 'None',
+                    'Current Structure in Memory': tableStructure || 'None'
+                };
+                
+                console.log('🐛 Debug Info:', debugInfo);
+                
+                // Show debug info in a modal
+                const debugModal = document.createElement('div');
+                debugModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+                debugModal.innerHTML = `
+                    <div class="bg-white rounded-xl p-6 max-w-4xl mx-4 shadow-2xl max-h-96 overflow-y-auto">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">🐛 Debug Information</h2>
+                        <pre class="bg-gray-100 p-4 rounded text-xs overflow-x-auto whitespace-pre-wrap">${JSON.stringify(debugInfo, null, 2)}</pre>
+                        <div class="mt-4 flex gap-3">
+                            <button onclick="this.closest('.fixed').remove()" 
+                                    class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+                                Close
+                            </button>
+                            <button onclick="forceSaveToParameters()" 
+                                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                                Force Save to Parameters
+                            </button>
+                            <button onclick="createMissingParameters()" 
+                                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+                                Show Parameter Instructions
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(debugModal);
+                
+                showStatus('Debug info displayed. Check console for detailed logs.', 'info');
+                
+            } catch (error) {
+                console.error('Debug error:', error);
+                showStatus('Debug failed: ' + error.message, 'error');
+            }
+        }
+
+        // Force save current table to parameters
+        async function forceSaveToParameters() {
             if (currentTable && tableStructure.length > 0) {
-                saveTableToSettings();
+                await saveTableToParameters();
                 // Close debug modal
                 const modal = document.querySelector('.fixed.inset-0');
                 if (modal) modal.remove();
             } else {
                 showStatus('No current table to save. Create a table first.', 'error');
             }
+        }
+
+        // Show parameter creation instructions
+        function createMissingParameters() {
+            // Close debug modal
+            const modal = document.querySelector('.fixed.inset-0');
+            if (modal) modal.remove();
+            
+            showParameterInstructions();
         }
 
         // Event listeners
