@@ -159,27 +159,46 @@
         // Check for saved table in Tableau parameters
         async function checkForSavedTable() {
             try {
-                console.log('Checking for saved table in parameters...');
+                console.log('🔍 Checking for saved table in parameters...');
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
                 const parameters = await dashboard.getParametersAsync();
                 
-                console.log('Found parameters:', parameters.map(p => p.name));
+                console.log('📋 All parameters found:', parameters.map(p => ({
+                    name: p.name,
+                    value: p.currentValue,
+                    dataType: p.dataType
+                })));
                 
-                const tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
-                const columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
+                // Try exact match first
+                let tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
+                let columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
                 
-                console.log('Table parameter:', tableParam?.currentValue);
-                console.log('Columns parameter:', columnsParam?.currentValue);
+                // If exact match fails, try case-insensitive
+                if (!tableParam) {
+                    tableParam = parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_NAME');
+                    console.log('📋 Trying case-insensitive match for table parameter:', tableParam?.name);
+                }
                 
-                if (tableParam && tableParam.currentValue && columnsParam && columnsParam.currentValue) {
-                    console.log('Found saved table, showing reconnect dialog');
+                if (!columnsParam) {
+                    columnsParam = parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_COLUMNS');
+                    console.log('📋 Trying case-insensitive match for columns parameter:', columnsParam?.name);
+                }
+                
+                console.log('🔍 Table parameter found:', tableParam ? `${tableParam.name} = "${tableParam.currentValue}"` : 'NOT FOUND');
+                console.log('🔍 Columns parameter found:', columnsParam ? `${columnsParam.name} = "${columnsParam.currentValue}"` : 'NOT FOUND');
+                
+                if (tableParam && tableParam.currentValue && tableParam.currentValue.trim() !== '' &&
+                    columnsParam && columnsParam.currentValue && columnsParam.currentValue.trim() !== '') {
+                    console.log('✅ Found saved table, showing reconnect dialog');
                     showReconnectDialog(tableParam.currentValue, columnsParam.currentValue);
                 } else {
-                    console.log('No saved table found, showing create section');
+                    console.log('❌ No saved table found or parameters empty, showing create section');
+                    console.log('Table param value:', tableParam?.currentValue);
+                    console.log('Columns param value:', columnsParam?.currentValue);
                     showCreateTableSection();
                 }
             } catch (error) {
-                console.log('Error checking for saved table:', error);
+                console.error('❌ Error checking for saved table:', error);
                 showCreateTableSection();
             }
         }
@@ -258,36 +277,59 @@
         // Save table info to Tableau parameters
         async function saveTableToParameters() {
             try {
-                console.log('Attempting to save table to parameters:', currentTable, tableStructure);
+                console.log('💾 Attempting to save table to parameters:', currentTable, tableStructure);
                 
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
                 const parameters = await dashboard.getParametersAsync();
                 
-                console.log('Available parameters:', parameters.map(p => ({name: p.name, current: p.currentValue})));
+                console.log('📋 Available parameters for saving:', parameters.map(p => ({
+                    name: p.name, 
+                    current: p.currentValue,
+                    dataType: p.dataType
+                })));
                 
-                const tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
-                const columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
+                // Try exact match first, then case-insensitive
+                let tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME') || 
+                                parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_NAME');
+                                
+                let columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS') ||
+                                  parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_COLUMNS');
+                
+                console.log('🎯 Found table parameter:', tableParam?.name);
+                console.log('🎯 Found columns parameter:', columnsParam?.name);
                 
                 if (!tableParam) {
-                    throw new Error('SNOWFLAKE_TABLE_NAME parameter not found. Please create it in Tableau first.');
+                    throw new Error('SNOWFLAKE_TABLE_NAME parameter not found. Found parameters: ' + 
+                                  parameters.map(p => p.name).join(', '));
                 }
                 
                 if (!columnsParam) {
-                    throw new Error('SNOWFLAKE_TABLE_COLUMNS parameter not found. Please create it in Tableau first.');
+                    throw new Error('SNOWFLAKE_TABLE_COLUMNS parameter not found. Found parameters: ' + 
+                                  parameters.map(p => p.name).join(', '));
                 }
                 
-                console.log('Updating SNOWFLAKE_TABLE_NAME parameter...');
+                console.log('💾 Updating table parameter with value:', currentTable);
                 await tableParam.changeValueAsync(currentTable);
+                console.log('✅ Table parameter updated successfully');
                 
-                console.log('Updating SNOWFLAKE_TABLE_COLUMNS parameter...');
-                await columnsParam.changeValueAsync(JSON.stringify(tableStructure));
+                const columnsJson = JSON.stringify(tableStructure);
+                console.log('💾 Updating columns parameter with value:', columnsJson);
+                await columnsParam.changeValueAsync(columnsJson);
+                console.log('✅ Columns parameter updated successfully');
                 
-                console.log('✅ Table information saved to Tableau parameters successfully');
-                showStatus('Table settings saved to Tableau parameters', 'success');
+                // Verify the save worked
+                const updatedParameters = await dashboard.getParametersAsync();
+                const updatedTableParam = updatedParameters.find(p => p.name === tableParam.name);
+                const updatedColumnsParam = updatedParameters.find(p => p.name === columnsParam.name);
+                
+                console.log('🔍 Verification - Table param now contains:', updatedTableParam?.currentValue);
+                console.log('🔍 Verification - Columns param now contains:', updatedColumnsParam?.currentValue);
+                
+                showStatus('✅ Table settings saved to Tableau parameters successfully!', 'success');
                 
             } catch (error) {
                 console.error('❌ Error saving to parameters:', error);
-                showStatus('Could not save table settings: ' + error.message, 'error');
+                showStatus('❌ Could not save table settings: ' + error.message, 'error');
                 
                 // Show detailed instructions
                 showParameterInstructions();
@@ -871,6 +913,10 @@
                             <button onclick="forceSaveToParameters()" 
                                     class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
                                 Force Save to Parameters
+                            </button>
+                            <button onclick="testParameterAccess()" 
+                                    class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg">
+                                Test Parameter Access
                             </button>
                             <button onclick="createMissingParameters()" 
                                     class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
