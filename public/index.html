@@ -132,6 +132,10 @@
                         class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                     Create Another Table
                 </button>
+                <button id="debugSettingsBtn" 
+                        class="ml-3 bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                    🐛 Debug Settings
+                </button>
             </div>
         </div>
     </div>
@@ -152,26 +156,22 @@
             });
         }
 
-        // Check for saved table in Tableau parameters
+        // Check for saved table in Tableau settings
         async function checkForSavedTable() {
             try {
-                const dashboard = tableau.extensions.dashboardContent.dashboard;
-                const parameters = dashboard.getParametersAsync();
+                const settings = tableau.extensions.settings.getAll();
+                console.log('Current settings:', settings);
                 
-                parameters.then(params => {
-                    const tableParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
-                    const columnsParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
-                    
-                    if (tableParam && tableParam.currentValue && columnsParam && columnsParam.currentValue) {
-                        showReconnectDialog(tableParam.currentValue, columnsParam.currentValue);
-                    } else {
-                        // No saved table, show create table section
-                        showCreateTableSection();
-                    }
-                }).catch(err => {
-                    console.log('No parameters found or error:', err);
+                const tableName = settings.SNOWFLAKE_TABLE_NAME;
+                const columnsJson = settings.SNOWFLAKE_TABLE_COLUMNS;
+                
+                if (tableName && columnsJson) {
+                    console.log('Found saved table:', tableName);
+                    showReconnectDialog(tableName, columnsJson);
+                } else {
+                    console.log('No saved table found');
                     showCreateTableSection();
-                });
+                }
             } catch (error) {
                 console.log('Error checking for saved table:', error);
                 showCreateTableSection();
@@ -249,21 +249,45 @@
             document.getElementById('tableSection').style.display = 'none';
         }
 
-        // Save table info to Tableau parameters
-        async function saveTableToParameters() {
+        // Save table info to Tableau settings
+        async function saveTableToSettings() {
             try {
-                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                console.log('Saving table to settings:', currentTable, tableStructure);
                 
-                // Create or update parameters
-                await dashboard.setParameterAsync('SNOWFLAKE_TABLE_NAME', currentTable);
-                await dashboard.setParameterAsync('SNOWFLAKE_TABLE_COLUMNS', JSON.stringify(tableStructure));
+                tableau.extensions.settings.set('SNOWFLAKE_TABLE_NAME', currentTable);
+                tableau.extensions.settings.set('SNOWFLAKE_TABLE_COLUMNS', JSON.stringify(tableStructure));
                 
-                console.log('Table information saved to Tableau parameters');
+                // Save settings to persist them
+                await tableau.extensions.settings.saveAsync();
+                
+                console.log('✅ Table information saved to Tableau settings');
+                showStatus('Table settings saved successfully', 'success');
+                
+                // Also try to update parameters if they exist (optional)
+                try {
+                    const dashboard = tableau.extensions.dashboardContent.dashboard;
+                    const params = await dashboard.getParametersAsync();
+                    
+                    const tableParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
+                    const columnsParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
+                    
+                    if (tableParam) {
+                        await tableParam.changeValueAsync(currentTable);
+                        console.log('Updated SNOWFLAKE_TABLE_NAME parameter');
+                    }
+                    
+                    if (columnsParam) {
+                        await columnsParam.changeValueAsync(JSON.stringify(tableStructure));
+                        console.log('Updated SNOWFLAKE_TABLE_COLUMNS parameter');
+                    }
+                } catch (paramError) {
+                    console.log('Parameters not found or could not be updated:', paramError);
+                    // This is not critical - settings are the primary storage method
+                }
+                
             } catch (error) {
-                console.error('Error saving to parameters:', error);
-                // If parameters don't exist, we might need to create them first
-                // This is a limitation - parameters usually need to be created manually in Tableau
-                showStatus('Note: Please create parameters SNOWFLAKE_TABLE_NAME and SNOWFLAKE_TABLE_COLUMNS in Tableau for persistence', 'info');
+                console.error('Error saving to settings:', error);
+                showStatus('Warning: Could not save table settings', 'error');
             }
         }
 
@@ -373,7 +397,7 @@
             
             generateAddRowForm();
             loadTableData();
-            saveTableToParameters(); // Save to Tableau parameters
+            saveTableToSettings(); // Save to Tableau settings
         }
 
         // Generate add row form based on table structure
@@ -739,6 +763,15 @@
             pendingRows = [];
             tableStructure = [];
             
+            // Clear settings
+            tableau.extensions.settings.set('SNOWFLAKE_TABLE_NAME', '');
+            tableau.extensions.settings.set('SNOWFLAKE_TABLE_COLUMNS', '');
+            tableau.extensions.settings.saveAsync().then(() => {
+                console.log('Settings cleared');
+            }).catch(err => {
+                console.error('Error clearing settings:', err);
+            });
+            
             document.getElementById('createTableSection').style.display = 'block';
             document.getElementById('tableSection').style.display = 'none';
             
@@ -749,6 +782,55 @@
             document.getElementById('createTableBtn').style.display = 'none';
         }
 
+        // Debug function to show current settings
+        function debugSettings() {
+            const settings = tableau.extensions.settings.getAll();
+            console.log('🐛 All Tableau Settings:', settings);
+            
+            const debugInfo = {
+                'All Settings': settings,
+                'Table Name': settings.SNOWFLAKE_TABLE_NAME || 'Not set',
+                'Table Columns': settings.SNOWFLAKE_TABLE_COLUMNS || 'Not set',
+                'Current Table in Memory': currentTable || 'None',
+                'Current Structure in Memory': tableStructure || 'None'
+            };
+            
+            // Show debug info in a modal
+            const debugModal = document.createElement('div');
+            debugModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            debugModal.innerHTML = `
+                <div class="bg-white rounded-xl p-6 max-w-2xl mx-4 shadow-2xl max-h-96 overflow-y-auto">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">🐛 Debug Information</h2>
+                    <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto whitespace-pre-wrap">${JSON.stringify(debugInfo, null, 2)}</pre>
+                    <div class="mt-4 flex gap-3">
+                        <button onclick="this.closest('.fixed').remove()" 
+                                class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+                            Close
+                        </button>
+                        <button onclick="forceSaveSettings()" 
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                            Force Save Current Table
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(debugModal);
+            
+            showStatus('Debug info displayed. Check console for detailed logs.', 'info');
+        }
+
+        // Force save current table to settings
+        function forceSaveSettings() {
+            if (currentTable && tableStructure.length > 0) {
+                saveTableToSettings();
+                // Close debug modal
+                const modal = document.querySelector('.fixed.inset-0');
+                if (modal) modal.remove();
+            } else {
+                showStatus('No current table to save. Create a table first.', 'error');
+            }
+        }
+
         // Event listeners
         document.getElementById('generateColumns').addEventListener('click', generateColumnFields);
         document.getElementById('createTableBtn').addEventListener('click', createTable);
@@ -756,6 +838,7 @@
         document.getElementById('saveRowsBtn').addEventListener('click', savePendingRows);
         document.getElementById('refreshTableBtn').addEventListener('click', loadTableData);
         document.getElementById('newTableBtn').addEventListener('click', resetToCreateTable);
+        document.getElementById('debugSettingsBtn').addEventListener('click', debugSettings);
 
         // Initialize the extension when page loads
         document.addEventListener('DOMContentLoaded', initializeExtension);
