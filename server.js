@@ -253,6 +253,125 @@ app.get('/api/table/:tableName/structure', async (req, res) => {
   }
 });
 
+// Update a specific row
+app.put('/api/table/:tableName/update/:rowIndex', async (req, res) => {
+  const { tableName, rowIndex } = req.params;
+  const { data } = req.body;
+  
+  if (!data) {
+    return res.status(400).json({ error: 'Update data is required' });
+  }
+
+  let connection;
+  
+  try {
+    connection = createConnection();
+    
+    await new Promise((resolve, reject) => {
+      connection.connect((err, conn) => {
+        if (err) reject(err);
+        else resolve(conn);
+      });
+    });
+
+    // Set context
+    await executeQuery(connection, `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`);
+    await executeQuery(connection, `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`);
+    await executeQuery(connection, `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`);
+
+    // First, get the current data to find the row to update
+    // Note: This is a simplified approach. In production, you'd want to use a proper primary key
+    const selectSQL = `SELECT * FROM ${tableName.toUpperCase()}`;
+    const rows = await executeQuery(connection, selectSQL);
+    
+    if (parseInt(rowIndex) >= rows.length) {
+      return res.status(400).json({ error: 'Row index out of range' });
+    }
+    
+    const targetRow = rows[parseInt(rowIndex)];
+    
+    // Create UPDATE statement
+    const updateColumns = Object.keys(data).map(key => 
+      `${key.toUpperCase()} = ?`
+    ).join(', ');
+    
+    // Use all original columns as WHERE conditions to identify the specific row
+    const whereConditions = Object.keys(targetRow).map(key => 
+      targetRow[key] === null ? `${key} IS NULL` : `${key} = ?`
+    ).join(' AND ');
+    
+    const whereValues = Object.values(targetRow).filter(val => val !== null);
+    
+    const updateSQL = `UPDATE ${tableName.toUpperCase()} SET ${updateColumns} WHERE ${whereConditions}`;
+    
+    console.log('🔄 Executing UPDATE:', updateSQL);
+    
+    await executeQuery(connection, updateSQL, [...Object.values(data), ...whereValues]);
+    
+    res.json({ success: true, message: 'Row updated successfully' });
+    
+  } catch (error) {
+    console.error('Error updating row:', error);
+    res.status(500).json({ error: 'Failed to update row: ' + error.message });
+  } finally {
+    if (connection) connection.destroy();
+  }
+});
+
+// Delete a specific row
+app.delete('/api/table/:tableName/delete/:rowIndex', async (req, res) => {
+  const { tableName, rowIndex } = req.params;
+
+  let connection;
+  
+  try {
+    connection = createConnection();
+    
+    await new Promise((resolve, reject) => {
+      connection.connect((err, conn) => {
+        if (err) reject(err);
+        else resolve(conn);
+      });
+    });
+
+    // Set context
+    await executeQuery(connection, `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`);
+    await executeQuery(connection, `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`);
+    await executeQuery(connection, `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`);
+
+    // First, get the current data to find the row to delete
+    const selectSQL = `SELECT * FROM ${tableName.toUpperCase()}`;
+    const rows = await executeQuery(connection, selectSQL);
+    
+    if (parseInt(rowIndex) >= rows.length) {
+      return res.status(400).json({ error: 'Row index out of range' });
+    }
+    
+    const targetRow = rows[parseInt(rowIndex)];
+    
+    // Create DELETE statement using all columns as WHERE conditions
+    const whereConditions = Object.keys(targetRow).map(key => 
+      targetRow[key] === null ? `${key} IS NULL` : `${key} = ?`
+    ).join(' AND ');
+    
+    const whereValues = Object.values(targetRow).filter(val => val !== null);
+    
+    const deleteSQL = `DELETE FROM ${tableName.toUpperCase()} WHERE ${whereConditions}`;
+    
+    console.log('🗑️ Executing DELETE:', deleteSQL);
+    
+    await executeQuery(connection, deleteSQL, whereValues);
+    
+    res.json({ success: true, message: 'Row deleted successfully' });
+    
+  } catch (error) {
+    console.error('Error deleting row:', error);
+    res.status(500).json({ error: 'Failed to delete row: ' + error.message });
+  } finally {
+    if (connection) connection.destroy();
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });

@@ -140,14 +140,131 @@
         let currentTable = null;
         let pendingRows = [];
         let tableStructure = [];
+        let editingRowIndex = -1;
 
         // Initialize Tableau Extensions API
         function initializeExtension() {
             tableau.extensions.initializeAsync().then(() => {
                 showStatus('Tableau Extension initialized successfully!', 'success');
+                checkForSavedTable();
             }).catch(err => {
                 showStatus('Error initializing Tableau Extension: ' + err, 'error');
             });
+        }
+
+        // Check for saved table in Tableau parameters
+        async function checkForSavedTable() {
+            try {
+                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                const parameters = dashboard.getParametersAsync();
+                
+                parameters.then(params => {
+                    const tableParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
+                    const columnsParam = params.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
+                    
+                    if (tableParam && tableParam.currentValue && columnsParam && columnsParam.currentValue) {
+                        showReconnectDialog(tableParam.currentValue, columnsParam.currentValue);
+                    } else {
+                        // No saved table, show create table section
+                        showCreateTableSection();
+                    }
+                }).catch(err => {
+                    console.log('No parameters found or error:', err);
+                    showCreateTableSection();
+                });
+            } catch (error) {
+                console.log('Error checking for saved table:', error);
+                showCreateTableSection();
+            }
+        }
+
+        // Show reconnect dialog
+        function showReconnectDialog(tableName, columnsJson) {
+            try {
+                const columns = JSON.parse(columnsJson);
+                const dialog = document.createElement('div');
+                dialog.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+                dialog.innerHTML = `
+                    <div class="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">🔄 Reconnect to Saved Table</h2>
+                        <p class="text-gray-600 mb-4">
+                            A previously created table was found:
+                        </p>
+                        <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                            <p class="font-semibold text-blue-800">Table: ${tableName}</p>
+                            <p class="text-sm text-blue-600">Columns: ${columns.map(col => col.name).join(', ')}</p>
+                        </div>
+                        <p class="text-gray-600 mb-6">
+                            Would you like to reconnect to this table or create a new one?
+                        </p>
+                        <div class="flex gap-3">
+                            <button onclick="reconnectToTable('${tableName}', '${columnsJson}')" 
+                                    class="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                                🔌 Reconnect
+                            </button>
+                            <button onclick="createNewTable()" 
+                                    class="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                                🆕 Create New
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(dialog);
+            } catch (error) {
+                console.error('Error showing reconnect dialog:', error);
+                showCreateTableSection();
+            }
+        }
+
+        // Reconnect to existing table
+        function reconnectToTable(tableName, columnsJson) {
+            try {
+                currentTable = tableName;
+                tableStructure = JSON.parse(columnsJson);
+                
+                // Remove dialog
+                const dialog = document.querySelector('.fixed.inset-0');
+                if (dialog) dialog.remove();
+                
+                showStatus(`Reconnected to table: ${tableName}`, 'success');
+                showTableSection();
+            } catch (error) {
+                showStatus('Error reconnecting to table: ' + error.message, 'error');
+                showCreateTableSection();
+            }
+        }
+
+        // Create new table (from dialog)
+        function createNewTable() {
+            // Remove dialog
+            const dialog = document.querySelector('.fixed.inset-0');
+            if (dialog) dialog.remove();
+            
+            showCreateTableSection();
+        }
+
+        // Show create table section
+        function showCreateTableSection() {
+            document.getElementById('createTableSection').style.display = 'block';
+            document.getElementById('tableSection').style.display = 'none';
+        }
+
+        // Save table info to Tableau parameters
+        async function saveTableToParameters() {
+            try {
+                const dashboard = tableau.extensions.dashboardContent.dashboard;
+                
+                // Create or update parameters
+                await dashboard.setParameterAsync('SNOWFLAKE_TABLE_NAME', currentTable);
+                await dashboard.setParameterAsync('SNOWFLAKE_TABLE_COLUMNS', JSON.stringify(tableStructure));
+                
+                console.log('Table information saved to Tableau parameters');
+            } catch (error) {
+                console.error('Error saving to parameters:', error);
+                // If parameters don't exist, we might need to create them first
+                // This is a limitation - parameters usually need to be created manually in Tableau
+                showStatus('Note: Please create parameters SNOWFLAKE_TABLE_NAME and SNOWFLAKE_TABLE_COLUMNS in Tableau for persistence', 'info');
+            }
         }
 
         // Show status messages
@@ -256,6 +373,7 @@
             
             generateAddRowForm();
             loadTableData();
+            saveTableToParameters(); // Save to Tableau parameters
         }
 
         // Generate add row form based on table structure
@@ -442,7 +560,7 @@
             }
         }
 
-        // Display table data
+        // Display table data with edit functionality
         function displayTableData(data) {
             const thead = document.getElementById('tableHead');
             const tbody = document.getElementById('tableBody');
@@ -457,16 +575,162 @@
             const headers = Object.keys(data[0]);
             thead.innerHTML = `<tr class="bg-gray-100">${
                 headers.map(header => `<th class="px-4 py-2 text-left border-b font-semibold">${header}</th>`).join('')
-            }</tr>`;
+            }<th class="px-4 py-2 text-left border-b font-semibold">Actions</th></tr>`;
             
-            // Generate rows
-            tbody.innerHTML = data.map((row, index) => 
-                `<tr class="border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">${
-                    headers.map(header => 
-                        `<td class="px-4 py-2">${row[header] !== null && row[header] !== undefined ? row[header] : ''}</td>`
-                    ).join('')
-                }</tr>`
-            ).join('');
+            // Generate rows with edit functionality
+            tbody.innerHTML = data.map((row, index) => {
+                const isEditing = editingRowIndex === index;
+                const rowClass = `border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`;
+                
+                if (isEditing) {
+                    return `<tr class="${rowClass} bg-yellow-50">${
+                        headers.map(header => {
+                            const value = row[header] !== null && row[header] !== undefined ? row[header] : '';
+                            const columnType = tableStructure.find(col => col.name.toUpperCase() === header.toUpperCase())?.type || 'VARCHAR(255)';
+                            
+                            let inputHtml = '';
+                            switch (columnType.toUpperCase()) {
+                                case 'INTEGER':
+                                case 'FLOAT':
+                                    inputHtml = `<input type="number" step="any" value="${value}" 
+                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
+                                    break;
+                                case 'DATE':
+                                    const dateValue = value ? new Date(value).toISOString().split('T')[0] : '';
+                                    inputHtml = `<input type="date" value="${dateValue}" 
+                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
+                                    break;
+                                case 'TIMESTAMP':
+                                    const timestampValue = value ? new Date(value).toISOString().slice(0, 16) : '';
+                                    inputHtml = `<input type="datetime-local" value="${timestampValue}" 
+                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
+                                    break;
+                                case 'BOOLEAN':
+                                    inputHtml = `<select class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">
+                                               <option value="">Select...</option>
+                                               <option value="true" ${value === true || value === 'true' ? 'selected' : ''}>True</option>
+                                               <option value="false" ${value === false || value === 'false' ? 'selected' : ''}>False</option>
+                                             </select>`;
+                                    break;
+                                default:
+                                    inputHtml = `<input type="text" value="${value}" 
+                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
+                            }
+                            
+                            return `<td class="px-4 py-2">${inputHtml}</td>`;
+                        }).join('')
+                    }<td class="px-4 py-2">
+                        <div class="flex gap-2">
+                            <button onclick="saveRowEdit(${index})" 
+                                    class="text-green-600 hover:text-green-800 text-sm font-medium">Save</button>
+                            <button onclick="cancelRowEdit()" 
+                                    class="text-gray-600 hover:text-gray-800 text-sm">Cancel</button>
+                        </div>
+                    </td></tr>`;
+                } else {
+                    return `<tr class="${rowClass}">${
+                        headers.map(header => 
+                            `<td class="px-4 py-2">${row[header] !== null && row[header] !== undefined ? row[header] : ''}</td>`
+                        ).join('')
+                    }<td class="px-4 py-2">
+                        <div class="flex gap-2">
+                            <button onclick="editRow(${index})" 
+                                    class="text-blue-600 hover:text-blue-800 text-sm">Edit</button>
+                            <button onclick="deleteRow(${index})" 
+                                    class="text-red-600 hover:text-red-800 text-sm">Delete</button>
+                        </div>
+                    </td></tr>`;
+                }
+            }).join('');
+        }
+
+        // Start editing a row
+        function editRow(index) {
+            if (editingRowIndex !== -1) {
+                showStatus('Please finish editing the current row first', 'error');
+                return;
+            }
+            editingRowIndex = index;
+            loadTableData(); // Refresh display to show edit inputs
+        }
+
+        // Cancel editing
+        function cancelRowEdit() {
+            editingRowIndex = -1;
+            loadTableData(); // Refresh display
+        }
+
+        // Save row edit
+        async function saveRowEdit(index) {
+            const inputs = document.querySelectorAll('.edit-input');
+            const updatedData = {};
+            
+            inputs.forEach(input => {
+                const columnName = input.getAttribute('data-column');
+                let value = input.value.trim();
+                
+                // Handle different data types
+                if (value) {
+                    const columnType = tableStructure.find(col => col.name.toUpperCase() === columnName.toUpperCase())?.type;
+                    if (columnType && columnType.toUpperCase() === 'INTEGER') {
+                        value = parseInt(value);
+                    } else if (columnType && columnType.toUpperCase() === 'FLOAT') {
+                        value = parseFloat(value);
+                    } else if (columnType && columnType.toUpperCase() === 'BOOLEAN') {
+                        value = value === 'true';
+                    }
+                }
+                
+                updatedData[columnName] = value;
+            });
+            
+            try {
+                showStatus('Updating row...', 'info');
+                
+                const response = await fetch(`/api/table/${currentTable}/update/${index}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: updatedData })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('Row updated successfully!', 'success');
+                    editingRowIndex = -1;
+                    loadTableData();
+                } else {
+                    showStatus('Error updating row: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('Network error: ' + error.message, 'error');
+            }
+        }
+
+        // Delete a row
+        async function deleteRow(index) {
+            if (!confirm('Are you sure you want to delete this row?')) {
+                return;
+            }
+            
+            try {
+                showStatus('Deleting row...', 'info');
+                
+                const response = await fetch(`/api/table/${currentTable}/delete/${index}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('Row deleted successfully!', 'success');
+                    loadTableData();
+                } else {
+                    showStatus('Error deleting row: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('Network error: ' + error.message, 'error');
+            }
         }
 
         // Reset to create new table
