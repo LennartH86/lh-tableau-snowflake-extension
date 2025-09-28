@@ -245,6 +245,7 @@
         }
 
         // Show reconnect dialog
+        // Replace your old showReconnectDialog function with this one
         function showReconnectDialog(tableName, columnsJson) {
             try {
                 const columns = JSON.parse(columnsJson);
@@ -264,11 +265,11 @@
                             Would you like to reconnect to this table or create a new one?
                         </p>
                         <div class="flex gap-3">
-                            <button onclick="reconnectToTable('${tableName}', '${columnsJson}')" 
+                            <button id="reconnectBtn" 
                                     class="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                                 🔌 Reconnect
                             </button>
-                            <button onclick="createNewTable()" 
+                            <button id="createNewBtn" 
                                     class="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                                 🆕 Create New
                             </button>
@@ -276,6 +277,16 @@
                     </div>
                 `;
                 document.body.appendChild(dialog);
+
+                // Attach event listeners after the dialog is in the DOM
+                document.getElementById('reconnectBtn').addEventListener('click', () => {
+                    reconnectToTable(tableName, columnsJson);
+                });
+
+                document.getElementById('createNewBtn').addEventListener('click', () => {
+                    createNewTable();
+                });
+
             } catch (error) {
                 console.error('Error showing reconnect dialog:', error);
                 showCreateTableSection();
