@@ -132,6 +132,10 @@
                 <button id="newTableBtn" 
                         class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
                     Create Another Table
+                </button>    
+                <button id="clearAndResetBtn" 
+                        class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                    Clear Saved Table
                 </button>
                 <button id="debugSettingsBtn" 
                         class="ml-3 bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
@@ -1041,6 +1045,7 @@
         document.getElementById('refreshTableBtn').addEventListener('click', loadTableData);
         document.getElementById('newTableBtn').addEventListener('click', resetToCreateTable);
         document.getElementById('debugSettingsBtn').addEventListener('click', debugSettings);
+        document.getElementById('clearAndResetBtn').addEventListener('click', resetToCreateTable);
 
         // Initialize the extension when page loads
         document.addEventListener('DOMContentLoaded', initializeExtension);
