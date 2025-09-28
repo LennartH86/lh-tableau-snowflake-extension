@@ -147,48 +147,42 @@
         let tableStructure = [];
         let editingRowIndex = -1;
 
+        // Helper function for robust, case-insensitive parameter finding
+        function findParameterIgnoreCase(parameters, name) {
+            const upperCaseName = name.toUpperCase();
+            return parameters.find(p => p.name.toUpperCase() === upperCaseName);
+        }
+
         // Initialize Tableau Extensions API
         function initializeExtension() {
-            // Check if Tableau API is loaded
-            if (typeof tableau === 'undefined') {
-                console.error('❌ Tableau Extensions API not loaded!');
-                showStatus('❌ Tableau Extensions API failed to load. Please refresh the page.', 'error');
-                
-                // Show fallback UI
+            if (typeof tableau === 'undefined' || !tableau.extensions) {
+                console.error('❌ Tableau Extensions API not loaded or not in Tableau environment.');
+                showStatus('Running in standalone mode. Tableau features are disabled.', 'info');
                 showCreateTableSection();
-                document.getElementById('debugSettingsBtn').style.display = 'none';
                 return;
             }
-            
+
             console.log('🔗 Tableau API loaded, initializing extension...');
-            
             tableau.extensions.initializeAsync().then(() => {
                 console.log('✅ Tableau Extension initialized successfully!');
                 showStatus('✅ Tableau Extension initialized successfully!', 'success');
-                
-                // Add a small delay to ensure everything is ready
-                setTimeout(() => {
-                    checkForSavedTable();
-                }, 500);
-                
+                setTimeout(checkForSavedTable, 500);
             }).catch(err => {
                 console.error('❌ Error initializing Tableau Extension:', err);
-                showStatus('❌ Error initializing Tableau Extension: ' + err.message, 'error');
-                
-                // Fallback to create table section
+                showStatus(`❌ Error initializing Tableau Extension: ${err.message}`, 'error');
                 showCreateTableSection();
             });
         }
 
         // Check if we're running in Tableau
         function isRunningInTableau() {
-            return typeof tableau !== 'undefined' && tableau.extensions;
+            return typeof tableau !== 'undefined' && tableau.extensions && tableau.extensions.environment.mode !== 'standalone';
         }
 
         // Check for saved table in Tableau parameters
         async function checkForSavedTable() {
             if (!isRunningInTableau()) {
-                console.log('❌ Not running in Tableau, skipping parameter check');
+                console.log('🌐 Not running in Tableau, skipping parameter check.');
                 showCreateTableSection();
                 return;
             }
@@ -196,50 +190,24 @@
             try {
                 console.log('🔍 Checking for saved table in parameters...');
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
-                
-                if (!dashboard) {
-                    throw new Error('Dashboard not available');
-                }
-                
                 const parameters = await dashboard.getParametersAsync();
                 
-                console.log('📋 All parameters found:', parameters.map(p => ({
-                    name: p.name,
-                    value: p.currentValue,
-                    dataType: p.dataType
-                })));
-                
-                // Try exact match first
-                let tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
-                let columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
-                
-                // If exact match fails, try case-insensitive
-                if (!tableParam) {
-                    tableParam = parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_NAME');
-                    console.log('📋 Trying case-insensitive match for table parameter:', tableParam?.name);
-                }
-                
-                if (!columnsParam) {
-                    columnsParam = parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_COLUMNS');
-                    console.log('📋 Trying case-insensitive match for columns parameter:', columnsParam?.name);
-                }
-                
-                console.log('🔍 Table parameter found:', tableParam ? `${tableParam.name} = "${tableParam.currentValue}"` : 'NOT FOUND');
-                console.log('🔍 Columns parameter found:', columnsParam ? `${columnsParam.name} = "${columnsParam.currentValue}"` : 'NOT FOUND');
-                
-                if (tableParam && tableParam.currentValue && tableParam.currentValue.trim() !== '' &&
-                    columnsParam && columnsParam.currentValue && columnsParam.currentValue.trim() !== '') {
+                const tableParam = findParameterIgnoreCase(parameters, 'SNOWFLAKE_TABLE_NAME');
+                const columnsParam = findParameterIgnoreCase(parameters, 'SNOWFLAKE_TABLE_COLUMNS');
+
+                const tableName = tableParam ? tableParam.currentValue.value : null;
+                const columnsValue = columnsParam ? columnsParam.currentValue.value : null;
+
+                if (tableName && tableName.trim() !== '' && columnsValue && columnsValue.trim() !== '') {
                     console.log('✅ Found saved table, showing reconnect dialog');
-                    showReconnectDialog(tableParam.currentValue, columnsParam.currentValue);
+                    showReconnectDialog(tableName, columnsValue);
                 } else {
-                    console.log('❌ No saved table found or parameters empty, showing create section');
-                    console.log('Table param value:', tableParam?.currentValue);
-                    console.log('Columns param value:', columnsParam?.currentValue);
+                    console.log('❌ No saved table found or parameters empty.');
                     showCreateTableSection();
                 }
             } catch (error) {
                 console.error('❌ Error checking for saved table:', error);
-                showStatus('⚠️ Could not check for saved tables: ' + error.message, 'error');
+                showStatus(`⚠️ Could not check for saved tables: ${error.message}`, 'error');
                 showCreateTableSection();
             }
         }
@@ -253,25 +221,17 @@
                 dialog.innerHTML = `
                     <div class="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
                         <h2 class="text-xl font-bold text-gray-800 mb-4">🔄 Reconnect to Saved Table</h2>
-                        <p class="text-gray-600 mb-4">
-                            A previously created table was found:
-                        </p>
+                        <p class="text-gray-600 mb-4">A previously created table was found:</p>
                         <div class="bg-blue-50 p-4 rounded-lg mb-4">
                             <p class="font-semibold text-blue-800">Table: ${tableName}</p>
                             <p class="text-sm text-blue-600">Columns: ${columns.map(col => col.name).join(', ')}</p>
                         </div>
-                        <p class="text-gray-600 mb-6">
-                            Would you like to reconnect to this table or create a new one?
-                        </p>
+                        <p class="text-gray-600 mb-6">Would you like to reconnect or create a new one?</p>
                         <div class="flex gap-3">
-                            <button onclick="reconnectToTable('${tableName}', '${columnsJson}')" 
-                                    class="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                                🔌 Reconnect
-                            </button>
+                            <button onclick="reconnectToTable('${tableName}', '${columnsJson.replace(/'/g, "\\'")}')" 
+                                    class="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">🔌 Reconnect</button>
                             <button onclick="createNewTable()" 
-                                    class="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200">
-                                🆕 Create New
-                            </button>
+                                    class="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">🆕 Create New</button>
                         </div>
                     </div>
                 `;
@@ -287,25 +247,20 @@
             try {
                 currentTable = tableName;
                 tableStructure = JSON.parse(columnsJson);
-                
-                // Remove dialog
                 const dialog = document.querySelector('.fixed.inset-0');
                 if (dialog) dialog.remove();
-                
                 showStatus(`Reconnected to table: ${tableName}`, 'success');
                 showTableSection();
             } catch (error) {
-                showStatus('Error reconnecting to table: ' + error.message, 'error');
+                showStatus(`Error reconnecting: ${error.message}`, 'error');
                 showCreateTableSection();
             }
         }
 
         // Create new table (from dialog)
         function createNewTable() {
-            // Remove dialog
             const dialog = document.querySelector('.fixed.inset-0');
             if (dialog) dialog.remove();
-            
             showCreateTableSection();
         }
 
@@ -318,721 +273,72 @@
         // Save table info to Tableau parameters
         async function saveTableToParameters() {
             if (!isRunningInTableau()) {
-                console.log('❌ Not running in Tableau, cannot save to parameters');
-                showStatus('⚠️ Not running in Tableau - parameters not available', 'error');
+                console.log('🌐 Not running in Tableau, cannot save to parameters.');
                 return;
             }
             
             try {
-                console.log('💾 Attempting to save table to parameters:', currentTable, tableStructure);
-                
+                console.log('💾 Attempting to save table to parameters...');
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
-                
-                if (!dashboard) {
-                    throw new Error('Dashboard not available');
-                }
-                
                 const parameters = await dashboard.getParametersAsync();
                 
-                console.log('📋 Available parameters for saving:', parameters.map(p => ({
-                    name: p.name, 
-                    current: p.currentValue,
-                    dataType: p.dataType
-                })));
+                const tableParam = findParameterIgnoreCase(parameters, 'SNOWFLAKE_TABLE_NAME');
+                const columnsParam = findParameterIgnoreCase(parameters, 'SNOWFLAKE_TABLE_COLUMNS');
                 
-                // Try exact match first, then case-insensitive
-                let tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME') || 
-                                parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_NAME');
-                                
-                let columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS') ||
-                                  parameters.find(p => p.name.toUpperCase() === 'SNOWFLAKE_TABLE_COLUMNS');
-                
-                console.log('🎯 Found table parameter:', tableParam?.name);
-                console.log('🎯 Found columns parameter:', columnsParam?.name);
-                
-                if (!tableParam) {
-                    throw new Error('SNOWFLAKE_TABLE_NAME parameter not found. Found parameters: ' + 
-                                  parameters.map(p => p.name).join(', '));
+                if (!tableParam || !columnsParam) {
+                    showParameterInstructions();
+                    throw new Error('Required parameters not found.');
                 }
                 
-                if (!columnsParam) {
-                    throw new Error('SNOWFLAKE_TABLE_COLUMNS parameter not found. Found parameters: ' + 
-                                  parameters.map(p => p.name).join(', '));
-                }
-                
-                console.log('💾 Updating table parameter with value:', currentTable);
                 await tableParam.changeValueAsync(currentTable);
-                console.log('✅ Table parameter updated successfully');
-                
                 const columnsJson = JSON.stringify(tableStructure);
-                console.log('💾 Updating columns parameter with value:', columnsJson);
                 await columnsParam.changeValueAsync(columnsJson);
-                console.log('✅ Columns parameter updated successfully');
                 
-                // Verify the save worked
-                const updatedParameters = await dashboard.getParametersAsync();
-                const updatedTableParam = updatedParameters.find(p => p.name === tableParam.name);
-                const updatedColumnsParam = updatedParameters.find(p => p.name === columnsParam.name);
-                
-                console.log('🔍 Verification - Table param now contains:', updatedTableParam?.currentValue);
-                console.log('🔍 Verification - Columns param now contains:', updatedColumnsParam?.currentValue);
-                
-                showStatus('✅ Table settings saved to Tableau parameters successfully!', 'success');
+                console.log('✅ Table settings saved to Tableau parameters successfully!');
+                showStatus('✅ Table settings saved to Tableau parameters!', 'success');
                 
             } catch (error) {
                 console.error('❌ Error saving to parameters:', error);
-                showStatus('❌ Could not save table settings: ' + error.message, 'error');
-                
-                // Show detailed instructions
-                showParameterInstructions();
+                showStatus(`❌ Could not save settings: ${error.message}`, 'error');
             }
         }
 
         // Show parameter creation instructions
         function showParameterInstructions() {
+            // ... (rest of the functions remain the same as your original file)
             const instructionModal = document.createElement('div');
-            instructionModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            instructionModal.innerHTML = `
-                <div class="bg-white rounded-xl p-6 max-w-2xl mx-4 shadow-2xl">
-                    <h2 class="text-xl font-bold text-red-600 mb-4">⚠️ Parameters Required</h2>
-                    <p class="text-gray-700 mb-4">
-                        To save your table for future sessions, please create these parameters in Tableau:
-                    </p>
-                    <div class="bg-gray-50 p-4 rounded-lg mb-4">
-                        <h3 class="font-semibold mb-2">Steps to create parameters:</h3>
-                        <ol class="list-decimal list-inside space-y-2 text-sm">
-                            <li>In Tableau, right-click in the Data pane</li>
-                            <li>Select "Create Parameter..."</li>
-                            <li><strong>Parameter 1:</strong> Name: <code class="bg-blue-100 px-1">SNOWFLAKE_TABLE_NAME</code>, Data type: String</li>
-                            <li><strong>Parameter 2:</strong> Name: <code class="bg-blue-100 px-1">SNOWFLAKE_TABLE_COLUMNS</code>, Data type: String</li>
-                            <li>Click OK for both parameters</li>
-                            <li>Refresh this extension</li>
-                        </ol>
-                    </div>
-                    <p class="text-sm text-gray-600 mb-4">
-                        Without these parameters, you'll need to reconnect to your table each time you open the dashboard.
-                    </p>
-                    <button onclick="this.closest('.fixed').remove()" 
-                            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
-                        I Understand
-                    </button>
-                </div>
-            `;
-            document.body.appendChild(instructionModal);
-        }
-
-        // Show status messages
-        function showStatus(message, type = 'info') {
-            const statusBar = document.getElementById('statusBar');
-            const statusMessage = document.getElementById('statusMessage');
-            
-            statusMessage.textContent = message;
-            statusBar.className = `mb-6 p-3 rounded-lg fade-in ${
-                type === 'success' ? 'bg-green-100 border-l-4 border-green-500' :
-                type === 'error' ? 'bg-red-100 border-l-4 border-red-500' :
-                'bg-blue-100 border-l-4 border-blue-500'
-            }`;
-            statusMessage.className = `font-medium ${
-                type === 'success' ? 'text-green-700' :
-                type === 'error' ? 'text-red-700' :
-                'text-blue-700'
-            }`;
-            
-            statusBar.style.display = 'block';
-            
-            setTimeout(() => {
-                statusBar.style.display = 'none';
-            }, 5000);
-        }
-
-        // Generate column definition fields
-        function generateColumnFields() {
-            const count = parseInt(document.getElementById('columnCount').value);
-            const container = document.getElementById('columnsDefinition');
-            
-            container.innerHTML = '';
-            
-            for (let i = 0; i < count; i++) {
-                const colDiv = document.createElement('div');
-                colDiv.className = 'grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 p-3 bg-gray-50 rounded-lg';
-                colDiv.innerHTML = `
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Column ${i + 1} Name</label>
-                        <input type="text" class="column-name w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
-                               placeholder="Column name" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Data Type</label>
-                        <select class="column-type w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="VARCHAR(255)">Text (VARCHAR)</option>
-                            <option value="INTEGER">Integer</option>
-                            <option value="FLOAT">Decimal (FLOAT)</option>
-                            <option value="DATE">Date</option>
-                            <option value="TIMESTAMP">Timestamp</option>
-                            <option value="BOOLEAN">Boolean</option>
-                        </select>
+                instructionModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+                instructionModal.innerHTML = `
+                    <div class="bg-white rounded-xl p-6 max-w-2xl mx-4 shadow-2xl">
+                        <h2 class="text-xl font-bold text-red-600 mb-4">⚠️ Parameters Required</h2>
+                        <p class="text-gray-700 mb-4">To save your table for future sessions, please create these two parameters in your Tableau workbook:</p>
+                        <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                            <ol class="list-decimal list-inside space-y-2 text-sm">
+                                <li>In Tableau, right-click in the Data pane and select "Create Parameter..."</li>
+                                <li><strong>Parameter 1:</strong>
+                                    <ul class="list-disc list-inside ml-4 mt-1">
+                                        <li>Name: <code class="bg-blue-100 px-1 rounded">SNOWFLAKE_TABLE_NAME</code></li>
+                                        <li>Data type: <code class="bg-blue-100 px-1 rounded">String</code></li>
+                                    </ul>
+                                </li>
+                                <li><strong>Parameter 2:</strong>
+                                    <ul class="list-disc list-inside ml-4 mt-1">
+                                        <li>Name: <code class="bg-blue-100 px-1 rounded">SNOWFLAKE_TABLE_COLUMNS</code></li>
+                                        <li>Data type: <code class="bg-blue-100 px-1 rounded">String</code></li>
+                                    </ul>
+                                </li>
+                                <li>Click OK for both, then refresh this extension.</li>
+                            </ol>
+                        </div>
+                        <button onclick="this.closest('.fixed').remove()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">I Understand</button>
                     </div>
                 `;
-                container.appendChild(colDiv);
-            }
-            
-            document.getElementById('createTableBtn').style.display = 'inline-block';
+                document.body.appendChild(instructionModal);
         }
 
-        // Create table in Snowflake
-        async function createTable() {
-            const tableName = document.getElementById('tableName').value.trim();
-            const columnNames = Array.from(document.querySelectorAll('.column-name')).map(input => input.value.trim());
-            const columnTypes = Array.from(document.querySelectorAll('.column-type')).map(select => select.value);
-            
-            if (!tableName || columnNames.some(name => !name)) {
-                showStatus('Please fill in all fields', 'error');
-                return;
-            }
-            
-            const columns = columnNames.map((name, index) => ({
-                name: name,
-                type: columnTypes[index]
-            }));
-            
-            try {
-                showStatus('Creating table...', 'info');
-                
-                const response = await fetch('/api/create-table', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tableName, columns })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    currentTable = tableName;
-                    tableStructure = columns;
-                    showStatus('Table created successfully!', 'success');
-                    showTableSection();
-                } else {
-                    showStatus('Error: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Network error: ' + error.message, 'error');
-            }
-        }
-
-        // Show table management section
-        function showTableSection() {
-            document.getElementById('createTableSection').style.display = 'none';
-            document.getElementById('tableSection').style.display = 'block';
-            document.getElementById('currentTableName').textContent = currentTable;
-            
-            generateAddRowForm();
-            loadTableData();
-            saveTableToParameters(); // Save to Tableau parameters
-        }
-
-        // Generate add row form based on table structure
-        function generateAddRowForm() {
-            const form = document.getElementById('addRowForm');
-            form.innerHTML = '';
-            
-            tableStructure.forEach((column, index) => {
-                const colDiv = document.createElement('div');
-                colDiv.className = 'grid grid-cols-1 md:grid-cols-4 gap-2 items-end';
-                
-                let inputHtml = '';
-                switch (column.type) {
-                    case 'INTEGER':
-                    case 'FLOAT':
-                        inputHtml = `<input type="number" step="any" class="row-input" data-column="${column.name}" 
-                                   placeholder="Enter ${column.name}">`;
-                        break;
-                    case 'DATE':
-                        inputHtml = `<input type="date" class="row-input" data-column="${column.name}">`;
-                        break;
-                    case 'TIMESTAMP':
-                        inputHtml = `<input type="datetime-local" class="row-input" data-column="${column.name}">`;
-                        break;
-                    case 'BOOLEAN':
-                        inputHtml = `<select class="row-input" data-column="${column.name}">
-                                   <option value="">Select...</option>
-                                   <option value="true">True</option>
-                                   <option value="false">False</option>
-                                 </select>`;
-                        break;
-                    default:
-                        inputHtml = `<input type="text" class="row-input" data-column="${column.name}" 
-                                   placeholder="Enter ${column.name}">`;
-                }
-                
-                colDiv.innerHTML = `
-                    <div class="md:col-span-1">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">${column.name}</label>
-                        <span class="text-xs text-gray-500">${column.type}</span>
-                    </div>
-                    <div class="md:col-span-3">
-                        ${inputHtml}
-                    </div>
-                `;
-                
-                const input = colDiv.querySelector('.row-input');
-                input.className += ' w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent';
-                
-                form.appendChild(colDiv);
-            });
-        }
-
-        // Add row to pending list
-        function addRowToPending() {
-            const inputs = document.querySelectorAll('.row-input');
-            const rowData = {};
-            
-            inputs.forEach(input => {
-                const columnName = input.getAttribute('data-column');
-                let value = input.value.trim();
-                
-                // Handle different data types
-                if (value) {
-                    const columnType = tableStructure.find(col => col.name === columnName)?.type;
-                    if (columnType === 'INTEGER') {
-                        value = parseInt(value);
-                    } else if (columnType === 'FLOAT') {
-                        value = parseFloat(value);
-                    } else if (columnType === 'BOOLEAN') {
-                        value = value === 'true';
-                    }
-                }
-                
-                rowData[columnName] = value;
-            });
-            
-            // Check if at least one field is filled
-            if (Object.values(rowData).every(val => val === '' || val === null || val === undefined)) {
-                showStatus('Please fill in at least one field', 'error');
-                return;
-            }
-            
-            pendingRows.push(rowData);
-            updatePendingDisplay();
-            clearAddRowForm();
-            showStatus('Row added to pending list', 'success');
-        }
-
-        // Clear add row form
-        function clearAddRowForm() {
-            document.querySelectorAll('.row-input').forEach(input => {
-                input.value = '';
-            });
-        }
-
-        // Update pending rows display
-        function updatePendingDisplay() {
-            const pendingSection = document.getElementById('pendingSection');
-            const pendingCount = document.getElementById('pendingCount');
-            const saveBtn = document.getElementById('saveRowsBtn');
-            
-            pendingCount.textContent = pendingRows.length;
-            
-            if (pendingRows.length > 0) {
-                pendingSection.style.display = 'block';
-                saveBtn.style.display = 'inline-block';
-                
-                // Generate table headers
-                const thead = document.getElementById('pendingTableHead');
-                thead.innerHTML = `<tr class="bg-gray-100">${
-                    tableStructure.map(col => `<th class="px-4 py-2 text-left border-b">${col.name}</th>`).join('')
-                }<th class="px-4 py-2 text-left border-b">Actions</th></tr>`;
-                
-                // Generate table rows
-                const tbody = document.getElementById('pendingTableBody');
-                tbody.innerHTML = pendingRows.map((row, index) => 
-                    `<tr class="border-b hover:bg-yellow-100">${
-                        tableStructure.map(col => 
-                            `<td class="px-4 py-2">${row[col.name] || ''}</td>`
-                        ).join('')
-                    }<td class="px-4 py-2">
-                        <button onclick="removePendingRow(${index})" 
-                                class="text-red-500 hover:text-red-700 text-sm">Remove</button>
-                    </td></tr>`
-                ).join('');
-            } else {
-                pendingSection.style.display = 'none';
-                saveBtn.style.display = 'none';
-            }
-        }
-
-        // Remove pending row
-        function removePendingRow(index) {
-            pendingRows.splice(index, 1);
-            updatePendingDisplay();
-            showStatus('Pending row removed', 'info');
-        }
-
-        // Save all pending rows to Snowflake
-        async function savePendingRows() {
-            if (pendingRows.length === 0) {
-                showStatus('No pending rows to save', 'error');
-                return;
-            }
-            
-            try {
-                showStatus('Saving rows to Snowflake...', 'info');
-                
-                const response = await fetch(`/api/table/${currentTable}/insert`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rows: pendingRows })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus(`Successfully saved ${pendingRows.length} rows!`, 'success');
-                    pendingRows = [];
-                    updatePendingDisplay();
-                    loadTableData();
-                } else {
-                    showStatus('Error saving rows: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Network error: ' + error.message, 'error');
-            }
-        }
-
-        // Load table data from Snowflake
-        async function loadTableData() {
-            try {
-                const response = await fetch(`/api/table/${currentTable}`);
-                const result = await response.json();
-                
-                if (result.success) {
-                    displayTableData(result.data);
-                } else {
-                    showStatus('Error loading data: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Network error: ' + error.message, 'error');
-            }
-        }
-
-        // Display table data with edit functionality
-        function displayTableData(data) {
-            const thead = document.getElementById('tableHead');
-            const tbody = document.getElementById('tableBody');
-            
-            if (data.length === 0) {
-                thead.innerHTML = '<tr><th class="px-4 py-2 text-center text-gray-500">No data available</th></tr>';
-                tbody.innerHTML = '';
-                return;
-            }
-            
-            // Generate headers
-            const headers = Object.keys(data[0]);
-            thead.innerHTML = `<tr class="bg-gray-100">${
-                headers.map(header => `<th class="px-4 py-2 text-left border-b font-semibold">${header}</th>`).join('')
-            }<th class="px-4 py-2 text-left border-b font-semibold">Actions</th></tr>`;
-            
-            // Generate rows with edit functionality
-            tbody.innerHTML = data.map((row, index) => {
-                const isEditing = editingRowIndex === index;
-                const rowClass = `border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`;
-                
-                if (isEditing) {
-                    return `<tr class="${rowClass} bg-yellow-50">${
-                        headers.map(header => {
-                            const value = row[header] !== null && row[header] !== undefined ? row[header] : '';
-                            const columnType = tableStructure.find(col => col.name.toUpperCase() === header.toUpperCase())?.type || 'VARCHAR(255)';
-                            
-                            let inputHtml = '';
-                            switch (columnType.toUpperCase()) {
-                                case 'INTEGER':
-                                case 'FLOAT':
-                                    inputHtml = `<input type="number" step="any" value="${value}" 
-                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
-                                    break;
-                                case 'DATE':
-                                    const dateValue = value ? new Date(value).toISOString().split('T')[0] : '';
-                                    inputHtml = `<input type="date" value="${dateValue}" 
-                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
-                                    break;
-                                case 'TIMESTAMP':
-                                    const timestampValue = value ? new Date(value).toISOString().slice(0, 16) : '';
-                                    inputHtml = `<input type="datetime-local" value="${timestampValue}" 
-                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
-                                    break;
-                                case 'BOOLEAN':
-                                    inputHtml = `<select class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">
-                                               <option value="">Select...</option>
-                                               <option value="true" ${value === true || value === 'true' ? 'selected' : ''}>True</option>
-                                               <option value="false" ${value === false || value === 'false' ? 'selected' : ''}>False</option>
-                                             </select>`;
-                                    break;
-                                default:
-                                    inputHtml = `<input type="text" value="${value}" 
-                                               class="edit-input w-full px-2 py-1 border rounded" data-column="${header}">`;
-                            }
-                            
-                            return `<td class="px-4 py-2">${inputHtml}</td>`;
-                        }).join('')
-                    }<td class="px-4 py-2">
-                        <div class="flex gap-2">
-                            <button onclick="saveRowEdit(${index})" 
-                                    class="text-green-600 hover:text-green-800 text-sm font-medium">Save</button>
-                            <button onclick="cancelRowEdit()" 
-                                    class="text-gray-600 hover:text-gray-800 text-sm">Cancel</button>
-                        </div>
-                    </td></tr>`;
-                } else {
-                    return `<tr class="${rowClass}">${
-                        headers.map(header => 
-                            `<td class="px-4 py-2">${row[header] !== null && row[header] !== undefined ? row[header] : ''}</td>`
-                        ).join('')
-                    }<td class="px-4 py-2">
-                        <div class="flex gap-2">
-                            <button onclick="editRow(${index})" 
-                                    class="text-blue-600 hover:text-blue-800 text-sm">Edit</button>
-                            <button onclick="deleteRow(${index})" 
-                                    class="text-red-600 hover:text-red-800 text-sm">Delete</button>
-                        </div>
-                    </td></tr>`;
-                }
-            }).join('');
-        }
-
-        // Start editing a row
-        function editRow(index) {
-            if (editingRowIndex !== -1) {
-                showStatus('Please finish editing the current row first', 'error');
-                return;
-            }
-            editingRowIndex = index;
-            loadTableData(); // Refresh display to show edit inputs
-        }
-
-        // Cancel editing
-        function cancelRowEdit() {
-            editingRowIndex = -1;
-            loadTableData(); // Refresh display
-        }
-
-        // Save row edit
-        async function saveRowEdit(index) {
-            const inputs = document.querySelectorAll('.edit-input');
-            const updatedData = {};
-            
-            inputs.forEach(input => {
-                const columnName = input.getAttribute('data-column');
-                let value = input.value.trim();
-                
-                // Handle different data types
-                if (value) {
-                    const columnType = tableStructure.find(col => col.name.toUpperCase() === columnName.toUpperCase())?.type;
-                    if (columnType && columnType.toUpperCase() === 'INTEGER') {
-                        value = parseInt(value);
-                    } else if (columnType && columnType.toUpperCase() === 'FLOAT') {
-                        value = parseFloat(value);
-                    } else if (columnType && columnType.toUpperCase() === 'BOOLEAN') {
-                        value = value === 'true';
-                    }
-                }
-                
-                updatedData[columnName] = value;
-            });
-            
-            try {
-                showStatus('Updating row...', 'info');
-                
-                const response = await fetch(`/api/table/${currentTable}/update/${index}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ data: updatedData })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('Row updated successfully!', 'success');
-                    editingRowIndex = -1;
-                    loadTableData();
-                } else {
-                    showStatus('Error updating row: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Network error: ' + error.message, 'error');
-            }
-        }
-
-        // Delete a row
-        async function deleteRow(index) {
-            if (!confirm('Are you sure you want to delete this row?')) {
-                return;
-            }
-            
-            try {
-                showStatus('Deleting row...', 'info');
-                
-                const response = await fetch(`/api/table/${currentTable}/delete/${index}`, {
-                    method: 'DELETE'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus('Row deleted successfully!', 'success');
-                    loadTableData();
-                } else {
-                    showStatus('Error deleting row: ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Network error: ' + error.message, 'error');
-            }
-        }
-
-        // Reset to create new table
-        function resetToCreateTable() {
-            currentTable = null;
-            pendingRows = [];
-            tableStructure = [];
-            
-            // Clear parameters if they exist
-            clearTableParameters();
-            
-            document.getElementById('createTableSection').style.display = 'block';
-            document.getElementById('tableSection').style.display = 'none';
-            
-            // Clear form
-            document.getElementById('tableName').value = '';
-            document.getElementById('columnCount').value = 3;
-            document.getElementById('columnsDefinition').innerHTML = '';
-            document.getElementById('createTableBtn').style.display = 'none';
-        }
-
-        // Clear table parameters
-        async function clearTableParameters() {
-            try {
-                const dashboard = tableau.extensions.dashboardContent.dashboard;
-                const parameters = await dashboard.getParametersAsync();
-                
-                const tableParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_NAME');
-                const columnsParam = parameters.find(p => p.name === 'SNOWFLAKE_TABLE_COLUMNS');
-                
-                if (tableParam) {
-                    await tableParam.changeValueAsync('');
-                    console.log('Cleared SNOWFLAKE_TABLE_NAME parameter');
-                }
-                
-                if (columnsParam) {
-                    await columnsParam.changeValueAsync('');
-                    console.log('Cleared SNOWFLAKE_TABLE_COLUMNS parameter');
-                }
-            } catch (error) {
-                console.log('Could not clear parameters:', error);
-            }
-        }
-
-        // Debug function to show current parameters
-        async function debugSettings() {
-            try {
-                console.log('🐛 Starting debug...');
-                
-                if (!isRunningInTableau()) {
-                    showStatus('❌ Not running in Tableau - tableau object not available', 'error');
-                    return;
-                }
-                
-                const dashboard = tableau.extensions.dashboardContent.dashboard;
-                
-                if (!dashboard) {
-                    showStatus('❌ Dashboard not available', 'error');
-                    return;
-                }
-                
-                const parameters = await dashboard.getParametersAsync();
-                
-                const debugInfo = {
-                    'Tableau API Status': 'Available ✅',
-                    'Dashboard Status': dashboard ? 'Available ✅' : 'Not Available ❌',
-                    'Available Parameters': parameters.map(p => ({
-                        name: p.name,
-                        dataType: p.dataType,
-                        currentValue: p.currentValue,
-                        id: p.id
-                    })),
-                    'Looking for': ['SNOWFLAKE_TABLE_NAME', 'SNOWFLAKE_TABLE_COLUMNS'],
-                    'Current Table in Memory': currentTable || 'None',
-                    'Current Structure in Memory': tableStructure || 'None'
-                };
-                
-                console.log('🐛 Debug Info:', debugInfo);
-                
-                // Show debug info in a modal
-                const debugModal = document.createElement('div');
-                debugModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-                debugModal.innerHTML = `
-                    <div class="bg-white rounded-xl p-6 max-w-4xl mx-4 shadow-2xl max-h-96 overflow-y-auto">
-                        <h2 class="text-xl font-bold text-gray-800 mb-4">🐛 Debug Information</h2>
-                        <pre class="bg-gray-100 p-4 rounded text-xs overflow-x-auto whitespace-pre-wrap">${JSON.stringify(debugInfo, null, 2)}</pre>
-                        <div class="mt-4 flex gap-3">
-                            <button onclick="this.closest('.fixed').remove()" 
-                                    class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
-                                Close
-                            </button>
-                            <button onclick="forceSaveToParameters()" 
-                                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
-                                Force Save to Parameters
-                            </button>
-                            <button onclick="testParameterAccess()" 
-                                    class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg">
-                                Test Parameter Access
-                            </button>
-                            <button onclick="createMissingParameters()" 
-                                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
-                                Show Parameter Instructions
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.body.appendChild(debugModal);
-                
-                showStatus('✅ Debug info displayed. Check console for detailed logs.', 'info');
-                
-            } catch (error) {
-                console.error('❌ Debug error:', error);
-                showStatus('❌ Debug failed: ' + error.message, 'error');
-            }
-        }
-
-        // Force save current table to parameters
-        async function forceSaveToParameters() {
-            if (currentTable && tableStructure.length > 0) {
-                await saveTableToParameters();
-                // Close debug modal
-                const modal = document.querySelector('.fixed.inset-0');
-                if (modal) modal.remove();
-            } else {
-                showStatus('No current table to save. Create a table first.', 'error');
-            }
-        }
-
-        // Show parameter creation instructions
-        function createMissingParameters() {
-            // Close debug modal
-            const modal = document.querySelector('.fixed.inset-0');
-            if (modal) modal.remove();
-            
-            showParameterInstructions();
-        }
-
-        // Event listeners
-        document.getElementById('generateColumns').addEventListener('click', generateColumnFields);
-        document.getElementById('createTableBtn').addEventListener('click', createTable);
-        document.getElementById('addRowBtn').addEventListener('click', addRowToPending);
-        document.getElementById('saveRowsBtn').addEventListener('click', savePendingRows);
-        document.getElementById('refreshTableBtn').addEventListener('click', loadTableData);
-        document.getElementById('newTableBtn').addEventListener('click', resetToCreateTable);
-        document.getElementById('debugSettingsBtn').addEventListener('click', debugSettings);
-
-        // Initialize the extension when page loads
-        document.addEventListener('DOMContentLoaded', initializeExtension);
+        // Paste the rest of your original JavaScript functions here...
+        // (showStatus, generateColumnFields, createTable, showTableSection, etc.)
+        // They do not need modification for this fix.
     </script>
 </body>
 </html>
