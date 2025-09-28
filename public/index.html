@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Snowflake Table Manager</title>
-    <script src="https://unpkg.com/tableau-extensions-api/lib/tableau.extensions.1.latest.js"></script>
+    <!-- Load Tableau Extensions API from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tableau-extensions-api/1.10.0/tableau.extensions.1.latest.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         .fade-in { animation: fadeIn 0.5s ease-in; }
@@ -148,19 +149,58 @@
 
         // Initialize Tableau Extensions API
         function initializeExtension() {
+            // Check if Tableau API is loaded
+            if (typeof tableau === 'undefined') {
+                console.error('❌ Tableau Extensions API not loaded!');
+                showStatus('❌ Tableau Extensions API failed to load. Please refresh the page.', 'error');
+                
+                // Show fallback UI
+                showCreateTableSection();
+                document.getElementById('debugSettingsBtn').style.display = 'none';
+                return;
+            }
+            
+            console.log('🔗 Tableau API loaded, initializing extension...');
+            
             tableau.extensions.initializeAsync().then(() => {
-                showStatus('Tableau Extension initialized successfully!', 'success');
-                checkForSavedTable();
+                console.log('✅ Tableau Extension initialized successfully!');
+                showStatus('✅ Tableau Extension initialized successfully!', 'success');
+                
+                // Add a small delay to ensure everything is ready
+                setTimeout(() => {
+                    checkForSavedTable();
+                }, 500);
+                
             }).catch(err => {
-                showStatus('Error initializing Tableau Extension: ' + err, 'error');
+                console.error('❌ Error initializing Tableau Extension:', err);
+                showStatus('❌ Error initializing Tableau Extension: ' + err.message, 'error');
+                
+                // Fallback to create table section
+                showCreateTableSection();
             });
+        }
+
+        // Check if we're running in Tableau
+        function isRunningInTableau() {
+            return typeof tableau !== 'undefined' && tableau.extensions;
         }
 
         // Check for saved table in Tableau parameters
         async function checkForSavedTable() {
+            if (!isRunningInTableau()) {
+                console.log('❌ Not running in Tableau, skipping parameter check');
+                showCreateTableSection();
+                return;
+            }
+            
             try {
                 console.log('🔍 Checking for saved table in parameters...');
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
+                
+                if (!dashboard) {
+                    throw new Error('Dashboard not available');
+                }
+                
                 const parameters = await dashboard.getParametersAsync();
                 
                 console.log('📋 All parameters found:', parameters.map(p => ({
@@ -199,6 +239,7 @@
                 }
             } catch (error) {
                 console.error('❌ Error checking for saved table:', error);
+                showStatus('⚠️ Could not check for saved tables: ' + error.message, 'error');
                 showCreateTableSection();
             }
         }
@@ -276,10 +317,21 @@
 
         // Save table info to Tableau parameters
         async function saveTableToParameters() {
+            if (!isRunningInTableau()) {
+                console.log('❌ Not running in Tableau, cannot save to parameters');
+                showStatus('⚠️ Not running in Tableau - parameters not available', 'error');
+                return;
+            }
+            
             try {
                 console.log('💾 Attempting to save table to parameters:', currentTable, tableStructure);
                 
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
+                
+                if (!dashboard) {
+                    throw new Error('Dashboard not available');
+                }
+                
                 const parameters = await dashboard.getParametersAsync();
                 
                 console.log('📋 Available parameters for saving:', parameters.map(p => ({
@@ -881,10 +933,24 @@
         async function debugSettings() {
             try {
                 console.log('🐛 Starting debug...');
+                
+                if (!isRunningInTableau()) {
+                    showStatus('❌ Not running in Tableau - tableau object not available', 'error');
+                    return;
+                }
+                
                 const dashboard = tableau.extensions.dashboardContent.dashboard;
+                
+                if (!dashboard) {
+                    showStatus('❌ Dashboard not available', 'error');
+                    return;
+                }
+                
                 const parameters = await dashboard.getParametersAsync();
                 
                 const debugInfo = {
+                    'Tableau API Status': 'Available ✅',
+                    'Dashboard Status': dashboard ? 'Available ✅' : 'Not Available ❌',
                     'Available Parameters': parameters.map(p => ({
                         name: p.name,
                         dataType: p.dataType,
@@ -927,11 +993,11 @@
                 `;
                 document.body.appendChild(debugModal);
                 
-                showStatus('Debug info displayed. Check console for detailed logs.', 'info');
+                showStatus('✅ Debug info displayed. Check console for detailed logs.', 'info');
                 
             } catch (error) {
-                console.error('Debug error:', error);
-                showStatus('Debug failed: ' + error.message, 'error');
+                console.error('❌ Debug error:', error);
+                showStatus('❌ Debug failed: ' + error.message, 'error');
             }
         }
 
