@@ -227,10 +227,10 @@
                 console.log('🔍 Table parameter found:', tableParam ? `${tableParam.name} = "${tableParam.currentValue}"` : 'NOT FOUND');
                 console.log('🔍 Columns parameter found:', columnsParam ? `${columnsParam.name} = "${columnsParam.currentValue}"` : 'NOT FOUND');
                 
-                if (tableParam && tableParam.currentValue && tableParam.currentValue.trim() !== '' &&
-                    columnsParam && columnsParam.currentValue && columnsParam.currentValue.trim() !== '') {
+                if (tableParam && tableParam.currentValue && tableParam.currentValue.formattedValue.trim() !== '' &&
+                    columnsParam && columnsParam.currentValue && columnsParam.currentValue.formattedValue.trim() !== '') {
                     console.log('✅ Found saved table, showing reconnect dialog');
-                    showReconnectDialog(tableParam.currentValue, columnsParam.currentValue);
+                    showReconnectDialog(tableParam.currentValue.formattedValue, columnsParam.currentValue.formattedValue);
                 } else {
                     console.log('❌ No saved table found or parameters empty, showing create section');
                     console.log('Table param value:', tableParam?.currentValue);
