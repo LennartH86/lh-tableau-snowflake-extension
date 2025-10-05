@@ -4,7 +4,7 @@
     <default-locale>en_US</default-locale>
     <name resource-id="name"/>
     <description>Snowflake Table Manager Extension</description>
-    <author name="Your Name" email="your.email@company.com" organization="Your Company" website="https://yourcompany.com"/>
+    <author name="Lennart Heuckenodorf" email="lheuckendorf@salesforce.com" organization="Tableau from Salesforce" website="https://tableau.com"/>
     <min-api-version>1.0</min-api-version>
     <source-location>
       <url>https://lh-tableau-snowflake-extension-31b02914ad61.herokuapp.com</url>
