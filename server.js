@@ -18,10 +18,7 @@ const snowflakeConfig = {
 // VALIDATE ENVIRONMENT VARIABLES
 // ============================================================================
 
-// Check that all required environment variables are set
-// If any are missing, the server will exit with an error message
-const requiredEnvVars = ['SNOWFLAKE_ACCOUNT', 'SNOWFLAKE_USERNAME', 'SNOWFLAKE_PASSWORD', 'SNOWFLAKE_DATABASE'];
-const missing/**
+/**
  * ============================================================================
  * TABLEAU SNOWFLAKE EXTENSION - SERVER
  * ============================================================================
@@ -58,34 +55,38 @@ require('dotenv').config();
 // ============================================================================
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;  // Heroku sets PORT automatically
 
-// Middleware
+// ============================================================================
+// CONFIGURE MIDDLEWARE
+// ============================================================================
+
+// Enable CORS - allows the extension to call this API from Tableau
 app.use(cors());
+
+// Parse JSON request bodies - allows us to receive JSON data from the frontend
 app.use(express.json());
+
+// Serve static files from 'public' folder - this serves index.html and manifest.trex
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Snowflake connection configuration
-const snowflakeConfig = {
-  account: process.env.SNOWFLAKE_ACCOUNT,
-  username: process.env.SNOWFLAKE_USERNAME,
-  password: process.env.SNOWFLAKE_PASSWORD,
-  database: process.env.SNOWFLAKE_DATABASE,
-  schema: process.env.SNOWFLAKE_SCHEMA,
-  warehouse: process.env.SNOWFLAKE_WAREHOUSE,
-  role: process.env.SNOWFLAKE_ROLE
-};
+// ============================================================================
+// VALIDATE ENVIRONMENT VARIABLES
+// ============================================================================
 
-// Validate required environment variables
+// Check that all required environment variables are set
+// If any are missing, the server will exit with an error message
 const requiredEnvVars = ['SNOWFLAKE_ACCOUNT', 'SNOWFLAKE_USERNAME', 'SNOWFLAKE_PASSWORD', 'SNOWFLAKE_DATABASE'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingEnvVars);
   console.error('Please set these environment variables and restart the app.');
-  process.exit(1);
+  console.error('Run: heroku config:set VARIABLE_NAME=value');
+  process.exit(1);  // Exit the application
 }
 
+// Log successful configuration (without showing password)
 console.log('✅ Snowflake configuration loaded:', {
   account: process.env.SNOWFLAKE_ACCOUNT,
   username: process.env.SNOWFLAKE_USERNAME,
@@ -94,7 +95,14 @@ console.log('✅ Snowflake configuration loaded:', {
   warehouse: process.env.SNOWFLAKE_WAREHOUSE
 });
 
-// Helper function to create Snowflake connection
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Create a new Snowflake connection
+ * @returns {Object} Snowflake connection object
+ */
 function createConnection() {
   try {
     return snowflake.createConnection(snowflakeConfig);
@@ -104,7 +112,13 @@ function createConnection() {
   }
 }
 
-// Helper function to execute SQL queries
+/**
+ * Execute a SQL query on Snowflake
+ * @param {Object} connection - Snowflake connection object
+ * @param {String} sqlText - SQL query to execute
+ * @param {Array} binds - Array of values to bind to the query (for parameterized queries)
+ * @returns {Promise<Array>} Promise that resolves with query results
+ */
 function executeQuery(connection, sqlText, binds = []) {
   return new Promise((resolve, reject) => {
     connection.execute({
@@ -123,14 +137,36 @@ function executeQuery(connection, sqlText, binds = []) {
   });
 }
 
-// API Routes
+// ============================================================================
+// API ENDPOINTS
+// ============================================================================
 
-// Create a new table
+/**
+ * ENDPOINT: POST /api/create-table
+ * 
+ * PURPOSE: Creates a new table in Snowflake
+ * 
+ * REQUEST BODY:
+ * {
+ *   tableName: "MY_TABLE",
+ *   columns: [
+ *     { name: "ID", type: "INTEGER" },
+ *     { name: "NAME", type: "VARCHAR(255)" }
+ *   ]
+ * }
+ * 
+ * RESPONSE:
+ * { success: true, message: "Table MY_TABLE created successfully" }
+ * 
+ * ERROR RESPONSE:
+ * { error: "Error message here" }
+ */
 app.post('/api/create-table', async (req, res) => {
   console.log('📝 Create table request received:', req.body);
   
   const { tableName, columns } = req.body;
   
+  // Validate request data
   if (!tableName || !columns || columns.length === 0) {
     console.error('❌ Invalid request: missing tableName or columns');
     return res.status(400).json({ error: 'Table name and columns are required' });
@@ -139,9 +175,11 @@ app.post('/api/create-table', async (req, res) => {
   let connection;
   
   try {
+    // Step 1: Create connection to Snowflake
     console.log('🔌 Creating Snowflake connection...');
     connection = createConnection();
     
+    // Step 2: Connect to Snowflake
     console.log('🤝 Connecting to Snowflake...');
     await new Promise((resolve, reject) => {
       connection.connect((err, conn) => {
@@ -155,7 +193,8 @@ app.post('/api/create-table', async (req, res) => {
       });
     });
 
-    // Set database and schema context first
+    // Step 3: Set the database, schema, and warehouse context
+    // This tells Snowflake which database and schema to use for this session
     const useDbSQL = `USE DATABASE ${process.env.SNOWFLAKE_DATABASE}`;
     const useSchemaSQL = `USE SCHEMA ${process.env.SNOWFLAKE_SCHEMA || 'PUBLIC'}`;
     const useWarehouseSQL = `USE WAREHOUSE ${process.env.SNOWFLAKE_WAREHOUSE}`;
@@ -169,7 +208,8 @@ app.post('/api/create-table', async (req, res) => {
     console.log('🏭 Setting warehouse context:', useWarehouseSQL);
     await executeQuery(connection, useWarehouseSQL);
 
-    // Build CREATE TABLE statement
+    // Step 4: Build the CREATE TABLE SQL statement
+    // Example: CREATE OR REPLACE TABLE MY_TABLE (ID INTEGER, NAME VARCHAR(255))
     const columnDefinitions = columns.map(col => 
       `${col.name.toUpperCase()} ${col.type.toUpperCase()}`
     ).join(', ');
@@ -177,6 +217,7 @@ app.post('/api/create-table', async (req, res) => {
     const createTableSQL = `CREATE OR REPLACE TABLE ${tableName.toUpperCase()} (${columnDefinitions})`;
     console.log('📄 Executing SQL:', createTableSQL);
     
+    // Step 5: Execute the CREATE TABLE statement
     await executeQuery(connection, createTableSQL);
     
     console.log('✅ Table created successfully:', tableName);
@@ -189,6 +230,7 @@ app.post('/api/create-table', async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   } finally {
+    // Always close the connection when done
     if (connection) {
       console.log('🔌 Closing Snowflake connection...');
       connection.destroy();

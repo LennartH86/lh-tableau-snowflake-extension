@@ -1,0 +1,101 @@
+# ============================================================================
+# .gitignore - Files and folders to exclude from Git
+# ============================================================================
+#
+# This file tells Git which files should NOT be committed to the repository.
+# This is important for security (don't commit passwords!) and cleanliness.
+#
+# ============================================================================
+
+# ============================================================================
+# ENVIRONMENT VARIABLES - NEVER COMMIT THESE!
+# ============================================================================
+# These files contain sensitive information like passwords and API keys
+.env
+.env.local
+.env.production
+.env.*.local
+
+# ============================================================================
+# NODE.JS DEPENDENCIES
+# ============================================================================
+# These are installed via 'npm install' and shouldn't be in Git
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json  # Can be controversial, but helps avoid conflicts
+
+# ============================================================================
+# OPERATING SYSTEM FILES
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ============================================================================
+# IDE AND EDITOR FILES
+# ============================================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ============================================================================
+# LOGS AND TEMPORARY FILES
+# ============================================================================
+logs/
+*.log
+*.tmp
+*.temp
+*.cache
+
+# ============================================================================
+# BUILD ARTIFACTS
+# ============================================================================
+dist/
+build/
+*.tgz
+
+# ============================================================================
+# TESTING
+# ============================================================================
+coverage/
+.nyc_output/
+
+# ============================================================================
+# HEROKU SPECIFIC
+# ============================================================================
+.heroku/
+
+# ============================================================================
+# MISC
+# ============================================================================
+*.bak
+*.old
