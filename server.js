@@ -1,10 +1,61 @@
-const express = require('express');
-const cors = require('cors');
-const snowflake = require('snowflake-sdk');
-const path = require('path');
+// ============================================================================
+// SNOWFLAKE CONFIGURATION
+// ============================================================================
 
-// Load environment variables
+// This object contains all the information needed to connect to Snowflake
+// All values come from environment variables set in Heroku
+const snowflakeConfig = {
+  account: process.env.SNOWFLAKE_ACCOUNT,        // e.g., "abc12345" or "abc12345.us-east-1.aws"
+  username: process.env.SNOWFLAKE_USERNAME,      // Your Snowflake username
+  password: process.env.SNOWFLAKE_PASSWORD,      // Your Snowflake password
+  database: process.env.SNOWFLAKE_DATABASE,      // Database name (e.g., "MY_DATABASE")
+  schema: process.env.SNOWFLAKE_SCHEMA,          // Schema name (e.g., "PUBLIC")
+  warehouse: process.env.SNOWFLAKE_WAREHOUSE,    // Warehouse name (e.g., "COMPUTE_WH")
+  role: process.env.SNOWFLAKE_ROLE               // Role name (e.g., "PUBLIC")
+};
+
+// ============================================================================
+// VALIDATE ENVIRONMENT VARIABLES
+// ============================================================================
+
+// Check that all required environment variables are set
+// If any are missing, the server will exit with an error message
+const requiredEnvVars = ['SNOWFLAKE_ACCOUNT', 'SNOWFLAKE_USERNAME', 'SNOWFLAKE_PASSWORD', 'SNOWFLAKE_DATABASE'];
+const missing/**
+ * ============================================================================
+ * TABLEAU SNOWFLAKE EXTENSION - SERVER
+ * ============================================================================
+ * 
+ * This is the main Node.js server that provides the backend API for the 
+ * Tableau Dashboard Extension. It handles all communication with Snowflake.
+ * 
+ * WHAT THIS FILE DOES:
+ * - Creates a web server using Express.js
+ * - Connects to Snowflake database
+ * - Provides API endpoints for table operations (create, read, update, delete)
+ * - Validates environment variables on startup
+ * 
+ * IMPORTANT: This file runs on Heroku, not on your local machine
+ * 
+ * ============================================================================
+ */
+
+// ============================================================================
+// IMPORT REQUIRED PACKAGES
+// ============================================================================
+
+const express = require('express');           // Web server framework
+const cors = require('cors');                 // Allow cross-origin requests
+const snowflake = require('snowflake-sdk');   // Snowflake database driver
+const path = require('path');                 // File path utilities
+
+// Load environment variables from .env file (for local development only)
+// In Heroku, these are set via the dashboard or CLI
 require('dotenv').config();
+
+// ============================================================================
+// INITIALIZE EXPRESS SERVER
+// ============================================================================
 
 const app = express();
 const PORT = process.env.PORT || 3000;
